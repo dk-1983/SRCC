@@ -1,0 +1,16 @@
+# Локальные материалы обсуждения и черновики
+.local/
+work/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+.coverage
+htmlcov/
+Thumbs.db
+.DS_Store
