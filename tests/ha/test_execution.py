@@ -330,3 +330,52 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
                   if item["event"] == "input_quality" and item["role"] == "climate"]
         self.assertEqual(events[-1]["quality"], "valid")
         self.assertEqual(self.calls, [])
+
+    async def restart_runtime(self):
+        old = self.runtime
+        old.stop()
+        if old.executor.task:
+            await old.executor.task
+        self.runtime = Runtime(self.hass, old.entry, old.data)
+        self.runtime.start()
+        await self.runtime.async_restore_control()
+        await self.settle()
+
+    async def test_saved_on_survives_runtime_shutdown_and_reconciles(self):
+        await self.runtime.async_set_control(True)
+        await self.settle()
+        self.calls.clear()
+        await self.restart_runtime()
+        self.assertTrue(self.runtime.executor.enabled)
+        self.assertEqual(self.calls, [])
+        self.assertTrue(self.runtime.executor.step.complete)
+
+    async def test_explicit_off_is_preserved_on_restart(self):
+        await self.runtime.async_set_control(True)
+        await self.settle()
+        await self.runtime.async_set_control(False)
+        self.calls.clear()
+        await self.restart_runtime()
+        self.assertFalse(self.runtime.executor.enabled)
+        self.assertEqual(self.calls, [])
+
+    async def test_restored_on_waits_for_missing_inputs(self):
+        await self.runtime.async_set_control(True)
+        await self.settle()
+        self.hass.states.async_set("sensor.tin", "unavailable")
+        self.hass.states.async_set("climate.ac", "unavailable")
+        self.calls.clear()
+        await self.restart_runtime()
+        self.assertTrue(self.runtime.executor.enabled)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.runtime.executor.step.phase, "BLOCKED")
+
+    async def test_disabled_profile_clears_saved_on(self):
+        await self.runtime.async_set_control(True)
+        await self.settle()
+        self.runtime.data["control_profile_enabled"] = False
+        self.calls.clear()
+        await self.restart_runtime()
+        self.assertFalse(self.runtime.executor.enabled)
+        self.assertEqual(await self.runtime.control_store.async_load(), {"enabled": False})
+        self.assertEqual(self.calls, [])

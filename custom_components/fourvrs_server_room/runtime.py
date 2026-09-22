@@ -1,12 +1,15 @@
 """Home Assistant input runtime, observation and serialized execution scheduling."""
+import asyncio
 from datetime import timedelta
 from time import monotonic
 
 from homeassistant.core import callback
+from homeassistant.helpers.storage import Store
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from .configuration import core_config
+from .configuration import core_config, validate
 from .const import ENTITY_ROLES
 from .core.controller import Observer
 from .core.models import Mode, Power, Quality, Sample, Snapshot
@@ -16,6 +19,8 @@ from .ha_inputs import power_state, read_sample, reported_mode
 class Runtime:
     def __init__(self, hass, entry, data):
         self.hass, self.entry, self.data = hass, entry, data
+        self.control_store = Store(hass, 1, f"fourvrs_server_room.{entry.entry_id}.control")
+        self.control_lock = asyncio.Lock()
         self._clock_anchor = monotonic()
         self._wall_anchor = dt_util.utcnow()
         self.observer = Observer(core_config(data), max_age=data["max_age"],
@@ -37,6 +42,34 @@ class Runtime:
         self.telemetry = Telemetry()
         from .execution import Executor
         self.executor = Executor(self)
+
+    async def async_set_control(self, enabled):
+        """Persist operator intent, independently of shutdown cleanup."""
+        async with self.control_lock:
+            if self.stopped:
+                raise HomeAssistantError("SRCC is unloading")
+            if enabled:
+                if not self.data.get("control_profile_enabled"):
+                    raise HomeAssistantError("Configure the execution profile first")
+                validate(self.data)
+            else:
+                self.executor.disable()
+            await self.control_store.async_save({"enabled": enabled})
+            if enabled and not self.stopped:
+                self.executor.enable()
+
+    async def async_restore_control(self):
+        """Restore intent only; plans and commands are always rebuilt."""
+        saved = await self.control_store.async_load()
+        if not isinstance(saved, dict) or saved.get("enabled") is not True:
+            return
+        if not self.data.get("control_profile_enabled"):
+            await self.control_store.async_save({"enabled": False})
+            self.telemetry.record("automation_restore_skipped", reason="PROFILE_DISABLED")
+            return
+        if not self.stopped:
+            self.telemetry.record("automation_restored")
+            self.executor.enable()
 
     @callback
     def start(self):

@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Server Room Climate Controller",
-        "description": "Observation by default. Configure the command profile, then enable the SRCC automatic control switch. Restart or options reload disarms automation. Backup sensors are independently optional. Timing settings must match source entity updates.",
+        "description": "Observation by default. Configure the command profile, then enable the SRCC automatic control switch. The automatic control choice is saved across restart and reload; equipment feedback is checked again before commands. Backup sensors are independently optional. Timing settings must match source entity updates.",
         "data": {
           "trm_temperature": "Room / rack temperature (primary sensor)",
           "outdoor_temperature": "Outdoor air temperature",
@@ -68,7 +68,7 @@
     "step": {
       "init": {
         "title": "Server Room Climate Controller",
-        "description": "Observation by default. Configure the command profile, then enable the SRCC automatic control switch. Restart or options reload disarms automation. Backup sensors are independently optional. Timing settings must match source entity updates.",
+        "description": "Observation by default. Configure the command profile, then enable the SRCC automatic control switch. The automatic control choice is saved across restart and reload; equipment feedback is checked again before commands. Backup sensors are independently optional. Timing settings must match source entity updates.",
         "data": {
           "trm_temperature": "Room / rack temperature (primary sensor)",
           "outdoor_temperature": "Outdoor air temperature",

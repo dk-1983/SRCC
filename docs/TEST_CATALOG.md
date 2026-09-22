@@ -146,3 +146,14 @@
 | [HaRuntimeTests.test_switch_output_readback_never_sends_commands](../tests/ha/test_runtime.py#L162) | PASS |
 | [HaRuntimeTests.test_optional_fault_binding_and_loss](../tests/ha/test_runtime.py#L178) | PASS |
 | [HaRuntimeTests.test_independent_backup_slots_through_flow_and_runtime](../tests/ha/test_runtime.py#L213) | PASS |
+
+## Дополнительный прогон 0.2.2
+
+61 автономный и 37 HA-тестов прошли (98 всего), hassfest: 0 invalid. К базовому каталогу добавлены:
+
+| Тест | Результат |
+|---|---|
+| [test_saved_on_survives_runtime_shutdown_and_reconciles](../tests/ha/test_execution.py#L344) | PASS |
+| [test_explicit_off_is_preserved_on_restart](../tests/ha/test_execution.py#L353) | PASS |
+| [test_restored_on_waits_for_missing_inputs](../tests/ha/test_execution.py#L362) | PASS |
+| [test_disabled_profile_clears_saved_on](../tests/ha/test_execution.py#L373) | PASS |

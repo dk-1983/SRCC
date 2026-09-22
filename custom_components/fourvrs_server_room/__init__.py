@@ -20,6 +20,7 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
     runtime.start()
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        await runtime.async_restore_control()
     except Exception:
         runtime.stop()
         raise

@@ -1,4 +1,4 @@
-"""Explicit local arming; never restores an ON state after restart."""
+"""Persistent operator control preference; equipment is reconciled on startup."""
 from homeassistant.components.switch import SwitchEntity
 from .entity import SrccEntity
 
@@ -11,7 +11,7 @@ class AutomaticSwitch(SrccEntity, SwitchEntity):
         return self.runtime.executor.enabled
 
     async def async_turn_on(self, **kwargs):
-        self.runtime.executor.enable()
+        await self.runtime.async_set_control(True)
 
     async def async_turn_off(self, **kwargs):
-        self.runtime.executor.disable()
+        await self.runtime.async_set_control(False)

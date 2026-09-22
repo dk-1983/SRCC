@@ -1,4 +1,4 @@
-"""Serial HA command dispatcher. Startup and reload always disarm automation."""
+"""Serial HA command dispatcher. Restored intent starts a new equipment reconciliation."""
 import asyncio
 from dataclasses import replace
 from time import monotonic
