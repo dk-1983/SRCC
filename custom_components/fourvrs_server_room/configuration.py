@@ -20,6 +20,10 @@ def validate(data: dict) -> dict:
     for role in REQUIRED_ROLES:
         if role not in result:
             raise ConfigurationError("missing_entity")
+    result.setdefault("ac_max_age", 180.0)
+    ac_age = result["ac_max_age"]
+    if isinstance(ac_age, bool) or not isinstance(ac_age, (int, float)) or not isfinite(ac_age) or ac_age <= 0:
+        raise ConfigurationError("invalid_timing")
     selected = []
     for role, domains in ENTITY_ROLES.items():
         if role not in result:

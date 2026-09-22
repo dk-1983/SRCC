@@ -44,7 +44,11 @@ class Sample(Generic[T]):
     measured_at: float
     quality: Quality = Quality.VALID
 
+    # Optional source-specific limit; timestamps remain unchanged for readback.
+    freshness_limit: float | None = None
+
     def fresh(self, now: float, max_age: float) -> bool:
+        max_age = self.freshness_limit if self.freshness_limit is not None else max_age
         return (
             self.quality is Quality.VALID
             and self.value is not None

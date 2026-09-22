@@ -21,6 +21,8 @@ def schema(defaults=None):
         fields[vol.Required(key, description={"suggested_value": defaults.get(key)})] = selector.NumberSelector(
             selector.NumberSelectorConfig(min=0, step="any", mode=selector.NumberSelectorMode.BOX,
                                           unit_of_measurement="s"))
+    fields[vol.Optional("ac_max_age", default=defaults.get("ac_max_age", 180.0))] = selector.NumberSelector(
+        selector.NumberSelectorConfig(min=1, step="any", mode=selector.NumberSelectorMode.BOX, unit_of_measurement="s"))
     for key in CONFIG_FIELDS:
         fields[vol.Required(key, default=defaults.get(key, getattr(Config(), key)))] = selector.NumberSelector(
             selector.NumberSelectorConfig(step="any", mode=selector.NumberSelectorMode.BOX,

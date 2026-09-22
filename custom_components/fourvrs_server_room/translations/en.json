@@ -40,7 +40,8 @@
           "command_timeout": "Command / readback timeout",
           "condition_hold": "Cooling choice confirmation duration",
           "minimum_dwell": "Minimum time between normal cooling changes",
-          "minimum_ac_off": "Minimum wait before starting stopped AC"
+          "minimum_ac_off": "Minimum wait before starting stopped AC",
+          "ac_max_age": "Maximum air conditioner publication age"
         }
       }
     },
@@ -104,7 +105,8 @@
           "command_timeout": "Command / readback timeout",
           "condition_hold": "Cooling choice confirmation duration",
           "minimum_dwell": "Minimum time between normal cooling changes",
-          "minimum_ac_off": "Minimum wait before starting stopped AC"
+          "minimum_ac_off": "Minimum wait before starting stopped AC",
+          "ac_max_age": "Maximum air conditioner publication age"
         }
       }
     },

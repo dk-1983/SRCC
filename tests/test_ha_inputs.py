@@ -87,3 +87,21 @@ class ConfigurationTests(unittest.TestCase):
                         {"ac_target": float("nan")}, {"emergency_off": 25}):
             with self.subTest(changes=changes), self.assertRaises(ConfigurationError):
                 validate(settings(**(control | changes)))
+
+
+class SourceFreshnessTests(unittest.TestCase):
+    def test_ac_limit_preserves_timestamp_and_other_sources(self):
+        ac = Sample("cool", "ac", 0, freshness_limit=180)
+        self.assertTrue(ac.fresh(160, 120))
+        self.assertTrue(ac.fresh(180, 120))
+        self.assertFalse(ac.fresh(180.01, 120))
+        self.assertEqual(ac.measured_at, 0)
+        self.assertFalse(Sample(True, "ups", 0).fresh(160, 120))
+        self.assertFalse(Sample(None, "ac", 0, Quality.UNAVAILABLE, 180).fresh(160, 120))
+
+    def test_ac_age_validation_and_migration_default(self):
+        self.assertEqual(validate(settings())["ac_max_age"], 180)
+        self.assertEqual(validate(settings(ac_max_age=150))["ac_max_age"], 150)
+        for value in (0, -1, True, float("nan"), float("inf")):
+            with self.assertRaises(ConfigurationError):
+                validate(settings(ac_max_age=value))

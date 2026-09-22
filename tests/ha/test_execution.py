@@ -316,14 +316,14 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_input_age_journal_deduplicates_and_records_recovery(self):
         with patch("custom_components.fourvrs_server_room.runtime.monotonic",
-                   return_value=self.runtime._clock_anchor + 121):
+                   return_value=self.runtime._clock_anchor + 181):
             for _ in range(5):
                 self.runtime.refresh()
         events = [item for item in self.runtime.telemetry.events
                   if item["event"] == "input_quality" and item["role"] == "climate"]
         self.assertEqual([item["quality"] for item in events], ["valid", "stale"])
-        self.assertGreater(events[-1]["publication_age_s"], 120)
-        self.assertEqual(events[-1]["max_age_s"], 120)
+        self.assertGreater(events[-1]["publication_age_s"], 180)
+        self.assertEqual(events[-1]["max_age_s"], 180)
         self.hass.states.async_set("climate.ac", "cool", self.hvac)
         await self.settle()
         events = [item for item in self.runtime.telemetry.events
@@ -379,3 +379,23 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.runtime.executor.enabled)
         self.assertEqual(await self.runtime.control_store.async_load(), {"enabled": False})
         self.assertEqual(self.calls, [])
+
+    async def test_ac_publication_limit_separate_from_other_roles(self):
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        self.hass.states.get("climate.ac").last_reported = dt_util.utcnow() - timedelta(seconds=160)
+        self.runtime.refresh()
+        self.assertEqual(self.runtime.input_status["climate"]["quality"], "valid")
+        self.assertEqual(self.runtime.input_status["climate"]["max_age_s"], 180)
+        self.assertEqual(self.runtime.reported_mode, "air_conditioning")
+        self.assertTrue(self.runtime.snapshot.ac_target.fresh(self.runtime.snapshot.now, 120))
+        self.hass.states.get("binary_sensor.online").last_reported = dt_util.utcnow() - timedelta(seconds=160)
+        self.runtime.refresh()
+        self.assertEqual(self.runtime.input_status["ups_online"]["quality"], "stale")
+        self.hass.states.get("climate.ac").last_reported = dt_util.utcnow() - timedelta(seconds=181)
+        self.runtime.refresh()
+        self.assertEqual(self.runtime.input_status["climate"]["quality"], "stale")
+        self.assertEqual(self.runtime.reported_mode, "unknown")

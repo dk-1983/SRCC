@@ -157,3 +157,11 @@
 | [test_explicit_off_is_preserved_on_restart](../tests/ha/test_execution.py#L353) | PASS |
 | [test_restored_on_waits_for_missing_inputs](../tests/ha/test_execution.py#L362) | PASS |
 | [test_disabled_profile_clears_saved_on](../tests/ha/test_execution.py#L373) | PASS |
+
+## Дополнительный прогон 0.2.3
+
+63 автономных и 38 HA-тестов: **101 PASS**. Hassfest: 0 invalid.
+
+- [test_ac_limit_preserves_timestamp_and_other_sources](../tests/test_ha_inputs.py#L93): PASS.
+- [test_ac_age_validation_and_migration_default](../tests/test_ha_inputs.py#L102): PASS.
+- [test_ac_publication_limit_separate_from_other_roles](../tests/ha/test_execution.py#L383): PASS.

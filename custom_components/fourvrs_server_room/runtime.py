@@ -1,5 +1,6 @@
 """Home Assistant input runtime, observation and serialized execution scheduling."""
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 from time import monotonic
 
@@ -120,6 +121,8 @@ class Runtime:
                                source=entity_id or role, now=now, wall_now=wall_now,
                                kind=kind, attribute=attribute,
                                clock_anchor=(self._clock_anchor, self._wall_anchor))
+            if role == "climate":
+                sample = replace(sample, freshness_limit=self.data.get("ac_max_age", 180.0))
             if entity_id:
                 samples[role] = sample
             return sample
@@ -154,6 +157,7 @@ class Runtime:
                                  clock_anchor=(self._clock_anchor, self._wall_anchor))
         else:
             target = Sample(None, "ac_target", now, Quality.UNAVAILABLE)
+        target = replace(target, freshness_limit=self.data.get("ac_max_age", 180.0))
         state = Snapshot(
             now=now, tin=read("trm_temperature", "temperature"),
             tout=read("outdoor_temperature", "temperature"),
@@ -171,7 +175,6 @@ class Runtime:
                           and read("ups_on_battery", "bool").fresh(now, age)
                           and read("ups_on_battery", "bool").value is True),
         )
-        from dataclasses import replace
         self.reported_mode = reported_mode(state, age)
         current = Mode(self.reported_mode) if self.reported_mode not in ("unknown", "conflict") else None
         state = replace(state, current=current)
@@ -203,7 +206,7 @@ class Runtime:
             self.input_status[role] = {
                 "quality": quality,
                 "publication_age_s": round((wall_now - reported).total_seconds(), 1) if reported else None,
-                "max_age_s": age,
+                "max_age_s": sample.freshness_limit if sample.freshness_limit is not None else age,
             }
         self.telemetry.observe(self)
         self.notify()
