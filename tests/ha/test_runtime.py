@@ -208,3 +208,38 @@ class HaRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 await self.hass.async_block_till_done()
                 self.assertIsNot(self.runtime.status.decision.desired, Mode.AIR_CONDITIONING)
             calls.assert_not_called()
+
+    async def test_independent_backup_slots_through_flow_and_runtime(self):
+        for roles in ((), ("bolid_temperature_1",), ("bolid_temperature_2",),
+                      ("bolid_temperature_1", "bolid_temperature_2")):
+            with self.subTest(roles=roles):
+                self.runtime.stop()
+                self.hass.states.async_set("sensor.trm", "25", {"unit_of_measurement": "°C"})
+                data = settings()
+                for role in ("bolid_temperature_1", "bolid_temperature_2"):
+                    if role not in roles:
+                        del data[role]
+                flow = ConfigFlow()
+                flow.hass = self.hass
+                result = await flow.async_step_user(schema()(data))
+                self.assertEqual(result["type"], "create_entry")
+                self.runtime = Runtime(self.hass, SimpleNamespace(entry_id="test"), result["data"])
+                self.runtime.start()
+                self.assertEqual(len(self.runtime.backups), len(roles))
+                self.assertEqual(self.runtime.status.temperature.sample.value, 25)
+                self.assertFalse(SrccBinarySensor(self.runtime, "backup_sensor_problem").is_on)
+                self.hass.states.async_set("sensor.trm", "unavailable")
+                await self.hass.async_block_till_done()
+                selected = self.runtime.status.temperature.sample
+                expected = {(): None, ("bolid_temperature_1",): 27,
+                            ("bolid_temperature_2",): 29,
+                            ("bolid_temperature_1", "bolid_temperature_2"): 28}[roles]
+                self.assertEqual(selected.value if selected else None, expected)
+                self.assertFalse(SrccBinarySensor(self.runtime, "backup_sensor_problem").is_on)
+                if len(roles) == 1:
+                    self.hass.states.async_set(data[roles[0]], "unavailable")
+                    await self.hass.async_block_till_done()
+                    self.assertIsNone(self.runtime.status.temperature.sample)
+                    self.assertTrue(SrccBinarySensor(self.runtime, "backup_sensor_problem").is_on)
+                    self.hass.states.async_set(data[roles[0]], "27" if roles[0].endswith("1") else "29",
+                                               {"unit_of_measurement": "°C"})

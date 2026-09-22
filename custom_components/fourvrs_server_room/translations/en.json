@@ -4,13 +4,13 @@
     "step": {
       "user": {
         "title": "Server Room Climate Controller",
-        "description": "Observe existing entities without sending equipment commands. Temperatures are required; equipment roles are optional. Configure publication-age limits for your upstream integrations. Values do not prove physical readback. Backup temperatures are sampled once per minute. Settings can be changed later.",
+        "description": "Observe existing entities without sending equipment commands. Temperatures are required; equipment roles are optional. Configure publication-age limits for your upstream integrations. Values do not prove physical readback. Backup temperatures are sampled once per minute. Settings can be changed later. Primary and outdoor sensors may come from any compatible equipment. Assign zero, one or two backup sensors; each is optional.",
         "data": {
-          "trm_temperature": "TRM rack temperature",
-          "outdoor_temperature": "Outdoor temperature",
-          "bolid_temperature_1": "Bolid temperature 1",
-          "bolid_temperature_2": "Bolid temperature 2",
-          "vent_enable": "Ventilation permission readback (C.dr)",
+          "trm_temperature": "Room / rack temperature (primary sensor)",
+          "outdoor_temperature": "Outdoor air temperature",
+          "bolid_temperature_1": "Backup temperature sensor 1 (optional)",
+          "bolid_temperature_2": "Backup temperature sensor 2 (optional)",
+          "vent_enable": "Automatic ventilation permission readback",
           "vent_output": "Fan output state",
           "climate": "Air conditioner",
           "ac_fault": "Optional AC fault signal (on = fault)",
@@ -35,7 +35,6 @@
       "missing_entity": "Select the required temperature entities.",
       "invalid_entity": "An entity has an unsupported domain or identifier.",
       "duplicate_entity": "Use distinct entities for different roles.",
-      "backup_pair_required": "Assign both Bolid roles, or leave both empty. A temporary outage of either sensor is handled at runtime.",
       "invalid_timing": "Enter finite positive age/gap limits and nonnegative tolerances; sampling tolerance must be below 60 seconds.",
       "freshness_confirmation_required": "Confirm the observation freshness contract.",
       "invalid_thresholds": "Check the temperature thresholds and recovery duration.",
@@ -51,13 +50,13 @@
     "step": {
       "init": {
         "title": "Server Room Climate Controller",
-        "description": "Observe existing entities without sending equipment commands. Temperatures are required; equipment roles are optional. Configure publication-age limits for your upstream integrations. Values do not prove physical readback. Backup temperatures are sampled once per minute. Settings can be changed later.",
+        "description": "Observe existing entities without sending equipment commands. Temperatures are required; equipment roles are optional. Configure publication-age limits for your upstream integrations. Values do not prove physical readback. Backup temperatures are sampled once per minute. Settings can be changed later. Primary and outdoor sensors may come from any compatible equipment. Assign zero, one or two backup sensors; each is optional.",
         "data": {
-          "trm_temperature": "TRM rack temperature",
-          "outdoor_temperature": "Outdoor temperature",
-          "bolid_temperature_1": "Bolid temperature 1",
-          "bolid_temperature_2": "Bolid temperature 2",
-          "vent_enable": "Ventilation permission readback (C.dr)",
+          "trm_temperature": "Room / rack temperature (primary sensor)",
+          "outdoor_temperature": "Outdoor air temperature",
+          "bolid_temperature_1": "Backup temperature sensor 1 (optional)",
+          "bolid_temperature_2": "Backup temperature sensor 2 (optional)",
+          "vent_enable": "Automatic ventilation permission readback",
           "vent_output": "Fan output state",
           "climate": "Air conditioner",
           "ac_fault": "Optional AC fault signal (on = fault)",
@@ -82,7 +81,6 @@
       "missing_entity": "Select the required temperature entities.",
       "invalid_entity": "An entity has an unsupported domain or identifier.",
       "duplicate_entity": "Use distinct entities for different roles.",
-      "backup_pair_required": "Assign both Bolid roles, or leave both empty. A temporary outage of either sensor is handled at runtime.",
       "invalid_timing": "Enter finite positive age/gap limits and nonnegative tolerances; sampling tolerance must be below 60 seconds.",
       "freshness_confirmation_required": "Confirm the observation freshness contract.",
       "invalid_thresholds": "Check the temperature thresholds and recovery duration.",
@@ -94,7 +92,7 @@
   "entity": {
     "sensor": {
       "temperature": {
-        "name": "Rack temperature"
+        "name": "Room / rack temperature"
       },
       "outdoor_temperature": {
         "name": "Outdoor temperature"

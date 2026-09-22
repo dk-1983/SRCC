@@ -78,8 +78,9 @@ class Runtime:
                                kind=kind, attribute=attribute,
                                clock_anchor=(self._clock_anchor, self._wall_anchor))
 
-        backup_roles = ("bolid_temperature_1", "bolid_temperature_2")
-        if all(key in self.data for key in backup_roles):
+        backup_roles = tuple(key for key in ("bolid_temperature_1", "bolid_temperature_2")
+                             if self.data.get(key))
+        if backup_roles:
             if now >= self.next_backup:
                 self.backups = tuple(read(key, "temperature") for key in backup_roles)
                 self.next_backup = now + 60

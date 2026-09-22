@@ -33,8 +33,6 @@ def validate(data: dict) -> dict:
         selected.append(entity_id)
     if len(selected) != len(set(selected)):
         raise ConfigurationError("duplicate_entity")
-    if bool(result.get("bolid_temperature_1")) != bool(result.get("bolid_temperature_2")):
-        raise ConfigurationError("backup_pair_required")
     for key in TIMING_FIELDS:
         value = result.get(key)
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):

@@ -78,3 +78,20 @@ class BackupTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OptionalBackupTests(unittest.TestCase):
+    def test_zero_or_one_configured_backup(self):
+        primary = temp(None, quality=Quality.UNAVAILABLE)
+        kwargs = dict(now=0, max_age=60, fallback=Fallback.MEAN_ALLOW_ONE, max_skew=5)
+        missing = select_temperature(primary, (), **kwargs)
+        self.assertIsNone(missing.sample)
+        self.assertEqual(missing.reason, "FALLBACK_NOT_CONFIGURED")
+        self.assertEqual(missing.warning_sources, ())
+        single = select_temperature(primary, (temp(27, source="backup"),), **kwargs)
+        self.assertEqual(single.sample.value, 27)
+        self.assertEqual(single.warning_sources, ())
+        self.assertTrue(single.degraded)  # Primary failed, not an absent second sensor.
+        failed = select_temperature(primary, (temp(None, source="backup"),), **kwargs)
+        self.assertIsNone(failed.sample)
+        self.assertEqual(failed.warning_sources, ("backup",))

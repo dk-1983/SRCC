@@ -53,11 +53,13 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ConfigurationError):
             validate(data)
 
-    def test_optional_backup_bindings_require_pair(self):
-        with self.assertRaises(ConfigurationError):
-            validate(settings(bolid_temperature_1="sensor.b1"))
-        self.assertIn("bolid_temperature_2", validate(settings(
-            bolid_temperature_1="sensor.b1", bolid_temperature_2="sensor.b2")))
+    def test_backup_bindings_are_independently_optional(self):
+        for changes in ({}, {"bolid_temperature_1": "sensor.b1"},
+                        {"bolid_temperature_2": "sensor.b2"},
+                        {"bolid_temperature_1": "sensor.b1", "bolid_temperature_2": "sensor.b2"}):
+            result = validate(settings(**changes))
+            for key, value in changes.items():
+                self.assertEqual(result[key], value)
 
     def test_unverified_freshness_and_duplicate_roles_rejected(self):
         for data in (settings(reported_freshness_confirmed=False),

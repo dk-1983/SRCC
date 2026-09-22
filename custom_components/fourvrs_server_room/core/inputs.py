@@ -1,4 +1,4 @@
-"""TRM primary; Bolid mean or the single remaining valid backup."""
+"""Primary temperature with zero, one or two configured backup sources."""
 from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
@@ -26,9 +26,9 @@ def select_temperature(primary: Sample[float], backups: tuple[Sample[float], ...
                        max_skew: float | None = None) -> TemperatureSelection:
     if primary.temperature(now, max_age) is not None:
         return TemperatureSelection(primary, False, "TRM_PRIMARY")
-    if fallback is Fallback.DISABLED:
+    if fallback is Fallback.DISABLED or not backups:
         return TemperatureSelection(None, True, "FALLBACK_NOT_CONFIGURED")
-    if (len(backups) != 2 or len({item.source for item in backups}) != 2
+    if (len(backups) not in (1, 2) or len({item.source for item in backups}) != len(backups)
             or primary.source in {item.source for item in backups}):
         return TemperatureSelection(None, True, "TWO_DISTINCT_BACKUP_ROLES_REQUIRED")
     values = [item.temperature(now, max_age) for item in backups]
