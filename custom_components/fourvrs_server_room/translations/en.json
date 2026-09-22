@@ -1,0 +1,145 @@
+{
+  "title": "Server Room Climate Controller",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Server Room Climate Controller",
+        "description": "Observe existing entities without sending equipment commands. Temperatures are required; equipment roles are optional. Configure publication-age limits for your upstream integrations. Values do not prove physical readback. Backup temperatures are sampled once per minute. Settings can be changed later.",
+        "data": {
+          "trm_temperature": "TRM rack temperature",
+          "outdoor_temperature": "Outdoor temperature",
+          "bolid_temperature_1": "Bolid temperature 1",
+          "bolid_temperature_2": "Bolid temperature 2",
+          "vent_enable": "Ventilation permission readback (C.dr)",
+          "vent_output": "Fan output state",
+          "climate": "Air conditioner",
+          "ac_fault": "Air conditioner fault (on = fault)",
+          "ups_online": "UPS mains online (on = mains present)",
+          "ups_on_battery": "UPS on battery",
+          "max_age": "Maximum publication age",
+          "backup_max_skew": "Maximum time difference between backup readings",
+          "sample_tolerance": "Sampling time tolerance (less than 60 s)",
+          "recovery_max_gap": "Maximum gap in critical recovery measurements",
+          "warning_on": "WARNING temperature",
+          "critical_on": "CRITICAL temperature",
+          "critical_recovery": "Critical recovery temperature",
+          "recovery_hold": "Critical recovery duration with falling temperature",
+          "ac_hard_min": "AC minimum outdoor temperature (start forbidden at or below)",
+          "vent_to_ac": "Outdoor temperature: ventilation to AC",
+          "ac_to_vent": "Outdoor temperature: AC to ventilation",
+          "reported_freshness_confirmed": "Use HA publication age for observation; I understand this does not prove physical device freshness"
+        }
+      }
+    },
+    "error": {
+      "missing_entity": "Select the required temperature entities.",
+      "invalid_entity": "An entity has an unsupported domain or identifier.",
+      "duplicate_entity": "Use distinct entities for different roles.",
+      "backup_pair_required": "Assign both Bolid roles, or leave both empty. A temporary outage of either sensor is handled at runtime.",
+      "invalid_timing": "Enter finite positive age/gap limits and nonnegative tolerances; sampling tolerance must be below 60 seconds.",
+      "freshness_confirmation_required": "Confirm the observation freshness contract.",
+      "invalid_thresholds": "Check the temperature thresholds and recovery duration.",
+      "entity_not_found": "A selected entity is not present in HA.",
+      "invalid_temperature_unit": "Temperature units must be Celsius, Fahrenheit or Kelvin.",
+      "self_reference": "SRCC outputs cannot be used as SRCC inputs."
+    },
+    "abort": {
+      "single_instance_allowed": "Only one controller is supported in this release."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Server Room Climate Controller",
+        "description": "Observe existing entities without sending equipment commands. Temperatures are required; equipment roles are optional. Configure publication-age limits for your upstream integrations. Values do not prove physical readback. Backup temperatures are sampled once per minute. Settings can be changed later.",
+        "data": {
+          "trm_temperature": "TRM rack temperature",
+          "outdoor_temperature": "Outdoor temperature",
+          "bolid_temperature_1": "Bolid temperature 1",
+          "bolid_temperature_2": "Bolid temperature 2",
+          "vent_enable": "Ventilation permission readback (C.dr)",
+          "vent_output": "Fan output state",
+          "climate": "Air conditioner",
+          "ac_fault": "Air conditioner fault (on = fault)",
+          "ups_online": "UPS mains online (on = mains present)",
+          "ups_on_battery": "UPS on battery",
+          "max_age": "Maximum publication age",
+          "backup_max_skew": "Maximum time difference between backup readings",
+          "sample_tolerance": "Sampling time tolerance (less than 60 s)",
+          "recovery_max_gap": "Maximum gap in critical recovery measurements",
+          "warning_on": "WARNING temperature",
+          "critical_on": "CRITICAL temperature",
+          "critical_recovery": "Critical recovery temperature",
+          "recovery_hold": "Critical recovery duration with falling temperature",
+          "ac_hard_min": "AC minimum outdoor temperature (start forbidden at or below)",
+          "vent_to_ac": "Outdoor temperature: ventilation to AC",
+          "ac_to_vent": "Outdoor temperature: AC to ventilation",
+          "reported_freshness_confirmed": "Use HA publication age for observation; I understand this does not prove physical device freshness"
+        }
+      }
+    },
+    "error": {
+      "missing_entity": "Select the required temperature entities.",
+      "invalid_entity": "An entity has an unsupported domain or identifier.",
+      "duplicate_entity": "Use distinct entities for different roles.",
+      "backup_pair_required": "Assign both Bolid roles, or leave both empty. A temporary outage of either sensor is handled at runtime.",
+      "invalid_timing": "Enter finite positive age/gap limits and nonnegative tolerances; sampling tolerance must be below 60 seconds.",
+      "freshness_confirmation_required": "Confirm the observation freshness contract.",
+      "invalid_thresholds": "Check the temperature thresholds and recovery duration.",
+      "entity_not_found": "A selected entity is not present in HA.",
+      "invalid_temperature_unit": "Temperature units must be Celsius, Fahrenheit or Kelvin.",
+      "self_reference": "SRCC outputs cannot be used as SRCC inputs."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "temperature": {
+        "name": "Rack temperature"
+      },
+      "outdoor_temperature": {
+        "name": "Outdoor temperature"
+      },
+      "temperature_source": {
+        "name": "Temperature source"
+      },
+      "alarm_severity": {
+        "name": "Alarm severity"
+      },
+      "reported_mode": {
+        "name": "Reported cooling mode"
+      },
+      "desired_mode": {
+        "name": "Suggested cooling mode"
+      },
+      "decision_reason": {
+        "name": "Decision reason"
+      },
+      "ventilation_trend": {
+        "name": "Ventilation temperature trend"
+      },
+      "observation_samples": {
+        "name": "Observation samples"
+      },
+      "power_state": {
+        "name": "Mains state"
+      },
+      "recovery_elapsed": {
+        "name": "Critical recovery elapsed time"
+      }
+    },
+    "binary_sensor": {
+      "controller_degraded": {
+        "name": "Controller degraded"
+      },
+      "backup_sensor_problem": {
+        "name": "Backup temperature sensor problem"
+      },
+      "thermal_critical": {
+        "name": "Critical rack temperature"
+      },
+      "observation_only": {
+        "name": "Observation only"
+      }
+    }
+  }
+}
