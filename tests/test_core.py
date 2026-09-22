@@ -342,3 +342,18 @@ class ManualVentilationTests(unittest.TestCase):
         self.assertEqual(planner.advance(state, Mode.AIR_CONDITIONING, **args).action, Action.FAN_OFF)
         self.assertIsNone(planner.advance(state, Mode.AIR_CONDITIONING, **args).action)
         self.assertEqual(planner.advance(snapshot(2), Mode.AIR_CONDITIONING, **args).action, Action.AC_COOL)
+
+
+class SeasonalSequenceTests(unittest.TestCase):
+    def test_temperature_oscillations_keep_mode_until_opposite_boundary(self):
+        mode = Mode.VENTILATION
+        sequence = [(-2, Mode.VENTILATION), (0.2, Mode.VENTILATION),
+                    (0.9, Mode.VENTILATION), (1, Mode.AIR_CONDITIONING),
+                    (0.8, Mode.AIR_CONDITIONING), (0, Mode.AIR_CONDITIONING),
+                    (-0.9, Mode.AIR_CONDITIONING), (-1, Mode.VENTILATION),
+                    (-0.5, Mode.VENTILATION), (0.9, Mode.VENTILATION)]
+        for outside, expected in sequence:
+            with self.subTest(outside=outside, mode=mode):
+                result = choose(snapshot(tout=temp(outside), current=mode), Config(), max_age=60)
+                self.assertEqual(result.desired, expected)
+                mode = result.desired

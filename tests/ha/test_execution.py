@@ -300,3 +300,33 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         await self.settle()
         self.assertEqual(self.runtime.executor.error, "AC_TARGET_OUT_OF_RANGE")
         self.assertNotIn(("climate", "set_temperature"), self.names())
+
+    async def test_command_journal_distinguishes_send_service_and_readback(self):
+        from custom_components.fourvrs_server_room.diagnostics import async_get_config_entry_diagnostics
+        self.runtime.executor.enable()
+        await self.settle()
+        events = list(self.runtime.telemetry.events)
+        for action in ("vent_disable", "fan_off", "ac_cool"):
+            kinds = [item["event"] for item in events if item.get("action") == action]
+            self.assertEqual(kinds, ["command_sent", "service_completed", "command_confirmed"])
+        self.assertEqual(self.runtime.executor.last_command["status"], "confirmed")
+        report = await async_get_config_entry_diagnostics(self.hass, SimpleNamespace(runtime_data=self.runtime))
+        for identifier in ("number.cdr", "switch.fan", "climate.ac", "sensor.tin"):
+            self.assertNotIn(identifier, str(report))
+
+    async def test_input_age_journal_deduplicates_and_records_recovery(self):
+        with patch("custom_components.fourvrs_server_room.runtime.monotonic",
+                   return_value=self.runtime._clock_anchor + 121):
+            for _ in range(5):
+                self.runtime.refresh()
+        events = [item for item in self.runtime.telemetry.events
+                  if item["event"] == "input_quality" and item["role"] == "climate"]
+        self.assertEqual([item["quality"] for item in events], ["valid", "stale"])
+        self.assertGreater(events[-1]["publication_age_s"], 120)
+        self.assertEqual(events[-1]["max_age_s"], 120)
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        await self.settle()
+        events = [item for item in self.runtime.telemetry.events
+                  if item["event"] == "input_quality" and item["role"] == "climate"]
+        self.assertEqual(events[-1]["quality"], "valid")
+        self.assertEqual(self.calls, [])

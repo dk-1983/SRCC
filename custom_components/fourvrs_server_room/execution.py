@@ -25,6 +25,8 @@ class Executor:
         self.last_ac_mode = None
         self.last_off = monotonic()
         self.timing = None
+        self.wait_details = {}
+        self.last_command = None
 
     def enable(self):
         if not self.runtime.data.get("control_profile_enabled"):
@@ -37,15 +39,21 @@ class Executor:
         self.last_off = monotonic()
         self.timing = TimingGate(condition_hold=self.runtime.data["condition_hold"],
                                  minimum_dwell=self.runtime.data["minimum_dwell"])
+        self.runtime.telemetry.record("automation_enabled")
         self.runtime.refresh()
 
     def disable(self):
+        was_enabled = self.enabled
         self.enabled = False
         self.generation += 1
         self.planner, self.target = None, None
         self.step = Step("OBSERVATION_ONLY")
+        self.wait_details = {}
+        if was_enabled:
+            self.runtime.telemetry.record("automation_disabled")
         # An already submitted HA service cannot be recalled. No next command
         # is sent; a new enable starts from current equipment feedback.
+        self.runtime.telemetry.execution_changed(self)
         self.runtime.notify()
 
     def schedule(self):
@@ -67,6 +75,7 @@ class Executor:
             for _ in range(12):
                 if not self.enabled or generation != self.generation or self.runtime.stopped:
                     return
+                self.wait_details = {}
                 self.runtime.refresh()
                 state = self.runtime.snapshot
                 status = self.runtime.status
@@ -96,12 +105,26 @@ class Executor:
                     self.planner = self._new_planner()
                     self.target = target
                 timing = self.timing.update(target, now=now, urgent=status.decision.urgent)
+
                 # Returning mains may auto-start AC. Do not dwell while
                 # reconciling unknown/conflicting equipment, or on battery.
                 reconcile = self.runtime.reported_mode in ("unknown", "conflict") or state.power is Power.BATTERY
                 allowed = timing.allowed or reconcile
+                previous_pending = self.planner.pending
+                pending_since = self.planner.sent_at
                 self.step = self.planner.advance(state, target, automatic=True,
                                                  ready=selected is not None, timing_allowed=allowed)
+                if previous_pending and self.planner.pending is not previous_pending:
+                    self.runtime.telemetry.record("command_confirmed", action=previous_pending.value,
+                                                  elapsed_s=round(now - pending_since, 3))
+                    if self.last_command:
+                        self.last_command = dict(self.last_command, status="confirmed")
+                if self.step.phase == "WAIT_TIMING":
+                    self.wait_details = {"condition_remaining_s": round(timing.condition_remaining, 1),
+                                         "dwell_remaining_s": round(timing.dwell_remaining, 1)}
+                if self.step.phase == "WAIT_READBACK":
+                    self.wait_details = {"readback_remaining_s": round(max(0, self.runtime.data["command_timeout"]
+                                                              - (now - self.planner.sent_at)), 1)}
                 if self.step.phase == "BLOCKED" and self.planner.error:
                     raise HomeAssistantError(self.planner.error)
                 if self.step.complete:
@@ -115,6 +138,7 @@ class Executor:
                 if action in (Action.AC_COOL, Action.AC_SET_TARGET) and ac_mode != "cool":
                     if now - self.last_off < self.runtime.data["minimum_ac_off"]:
                         self.planner.pending = None
+                        self.wait_details = {"ac_off_remaining_s": round(self.runtime.data["minimum_ac_off"] - (now - self.last_off), 1)}
                         self.step = Step("WAIT_AC_MINIMUM_OFF")
                         return
                 if not self.enabled or generation != self.generation or self.runtime.stopped:
@@ -131,6 +155,7 @@ class Executor:
                 if self.planner:
                     self.planner.fail(self.error)
         finally:
+            self.runtime.telemetry.execution_changed(self)
             self.runtime.notify()
 
     async def _send(self, action):
@@ -166,5 +191,20 @@ class Executor:
                 payload = {"entity_id": entity_id, "temperature": target, "hvac_mode": "cool"}
         if not rt.hass.services.has_service(domain, service):
             raise HomeAssistantError("SERVICE_UNAVAILABLE:" + domain + "." + service)
-        async with asyncio.timeout(data["command_timeout"]):
-            await rt.hass.services.async_call(domain, service, payload, blocking=True)
+        role = "vent_enable" if action in (Action.VENT_DISABLE, Action.VENT_ENABLE) else (
+            "vent_output" if action in (Action.FAN_ON, Action.FAN_OFF) else "climate")
+        parameters = {key: value for key, value in payload.items() if key != "entity_id"}
+        event = rt.telemetry.record("command_sent", action=action.value, role=role,
+                                    service=domain + "." + service, parameters=parameters)
+        self.last_command = {"sequence": event["sequence"], "time": event["time"],
+                             "action": action.value, "role": role, "status": "sent"}
+        try:
+            async with asyncio.timeout(data["command_timeout"]):
+                await rt.hass.services.async_call(domain, service, payload, blocking=True)
+        except Exception as error:
+            self.last_command = dict(self.last_command, status="service_failed")
+            rt.telemetry.record("command_failed", warning=True, action=action.value,
+                                role=role, error_type=type(error).__name__)
+            raise
+        self.last_command = dict(self.last_command, status="awaiting_readback")
+        rt.telemetry.record("service_completed", action=action.value, role=role)

@@ -56,7 +56,9 @@ class SrccSensor(SrccEntity, SensorEntity):
         if self.key == "decision_reason":
             return {"observation_only": not self.runtime.executor.enabled, "execution_phase": self.runtime.executor.step.phase,
                     "execution_reason": self.runtime.executor.step.reason, "execution_error": self.runtime.executor.error, "blockers": list(status.decision.blockers),
-                    "urgent": status.decision.urgent}
+                    "urgent": status.decision.urgent,
+                    "last_command": self.runtime.executor.last_command,
+                    "input_issues": [role for role, item in self.runtime.input_status.items() if item["quality"] != "valid"]}
         if self.key == "temperature_source":
             return {"selection_reason": status.temperature.reason,
                     "source": status.temperature.sample.source if status.temperature.sample else None,

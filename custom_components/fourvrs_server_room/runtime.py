@@ -32,6 +32,9 @@ class Runtime:
         self.next_backup = 0.0
         self.demand = None
         self.vent_failed = False
+        self.input_status = {}
+        from .telemetry import Telemetry
+        self.telemetry = Telemetry()
         from .execution import Executor
         self.executor = Executor(self)
 
@@ -76,12 +79,17 @@ class Runtime:
         wall_now = self._wall_anchor + timedelta(seconds=now - self._clock_anchor)
         age = self.data["max_age"]
 
+        samples = {}
+
         def read(role, kind, attribute=None):
             entity_id = self.data.get(role)
-            return read_sample(self.hass.states.get(entity_id) if entity_id else None,
+            sample = read_sample(self.hass.states.get(entity_id) if entity_id else None,
                                source=entity_id or role, now=now, wall_now=wall_now,
                                kind=kind, attribute=attribute,
                                clock_anchor=(self._clock_anchor, self._wall_anchor))
+            if entity_id:
+                samples[role] = sample
+            return sample
 
         backup_roles = tuple(key for key in ("bolid_temperature_1", "bolid_temperature_2")
                              if self.data.get(key))
@@ -152,6 +160,19 @@ class Runtime:
                                              other_critical=self.reported_mode == "conflict" and not self.executor.enabled)
         if self.status.trend.ineffective is True:
             self.vent_failed = True
+        self.input_status = {}
+        for role, sample in samples.items():
+            quality = sample.quality.value
+            if quality == "valid" and not sample.fresh(now, age):
+                quality = "stale"
+            source_state = self.hass.states.get(self.data[role])
+            reported = getattr(source_state, "last_reported", None)
+            self.input_status[role] = {
+                "quality": quality,
+                "publication_age_s": round((wall_now - reported).total_seconds(), 1) if reported else None,
+                "max_age_s": age,
+            }
+        self.telemetry.observe(self)
         self.notify()
         self.executor.schedule()
 

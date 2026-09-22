@@ -7,6 +7,10 @@ async def async_get_config_entry_diagnostics(hass, entry):
     status = runtime.status
     return {
         "version": VERSION,
+        "inputs": runtime.input_status,
+        "recent_events": list(runtime.telemetry.events),
+        "wait_remaining": dict(runtime.executor.wait_details),
+        "last_command": runtime.executor.last_command,
         "observation_only": not runtime.executor.enabled,
         "execution_phase": runtime.executor.step.phase,
         "execution_error": bool(runtime.executor.error),
