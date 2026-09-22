@@ -93,7 +93,7 @@ Quality: VALID / UNKNOWN / UNAVAILABLE / STALE / INVALID / UNVERIFIED. Врем�
 | vent_output | binary_sensor или switch с readback; обязательна | Запуск AC запрещён: выход OFF не доказан |
 | vent_demand | binary_sensor/attribute; необязательна | Специфический диагноз отказа вентиляции отключён |
 | climate | climate с COOL/OFF и температурой; обязательна | AC unavailable; это не доказательство OFF |
-| ac_fault | binary_sensor/sensor/attribute; обязательное назначение источника при наличии в драйвере | Состояние здоровья неизвестно; запуск по выбранному профилю блокируется |
+| ac_fault | Необязательный дополнительный binary_sensor; sensor/attribute требуют нормализации | Неназначенный источник не блокирует AC. Назначенный, но неизвестный/устаревший или ON блокирует AC |
 | ac_availability | встроенная availability плюс необязательный отдельный сигнал | Недоступность любого обязательного для профиля сигнала делает устройство недоступным для команды |
 | ac_execution / actual_off | entity/attribute; роль доказательства обязательна, отдельная entity зависит от драйвера | Нет завершения соответствующей фазы; optimistic climate не заменяет обратную связь |
 | ups_on_battery | binary_sensor либо отображение enum; обязательна | Питание UNKNOWN, сеть не считается присутствующей |

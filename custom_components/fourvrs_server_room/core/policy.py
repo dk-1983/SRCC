@@ -16,7 +16,7 @@ def choose(snapshot: Snapshot, config: Config, *, max_age: float,
         # or issue a new cooling goal based solely on On Battery.
         return Decision(None, "POWER_POLICY_REQUIRED", (snapshot.power.value,), urgent)
     ac_ok = (tout > config.ac_hard_min and snapshot.ac_available
-             and snapshot.ac_fault is False and not snapshot.ac_ineffective)
+             and snapshot.ac_fault_allows_operation and not snapshot.ac_ineffective)
     vent_ok = snapshot.vent_available and not snapshot.vent_ineffective
     if snapshot.current is Mode.AIR_CONDITIONING and ac_ok:
         if tout <= config.ac_to_vent and vent_ok:

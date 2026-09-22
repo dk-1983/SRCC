@@ -115,6 +115,7 @@ class Runtime:
             vent_available=enabled.fresh(now, age) and output.fresh(now, age),
             vent_enabled=enabled, vent_output=output, ac_mode=mode, ac_target=target,
             ac_fault=fault.value if fault.fresh(now, age) else None,
+            ac_fault_monitored=bool(self.data.get("ac_fault")),
         )
         from dataclasses import replace
         self.reported_mode = reported_mode(state, age)

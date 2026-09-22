@@ -134,6 +134,13 @@ class Snapshot:
     ac_ineffective: bool = False
     current: Mode | None = None
 
+    # Unassigned optional fault input differs from a configured input with lost data.
+    ac_fault_monitored: bool = True
+
+    @property
+    def ac_fault_allows_operation(self) -> bool:
+        return self.ac_fault is False or (not self.ac_fault_monitored and self.ac_fault is None)
+
     def proved(self, sample: Sample, value: object, max_age: float) -> bool:
         # Never accept a number/string as a boolean readback.
         return (sample.fresh(self.now, max_age)

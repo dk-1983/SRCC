@@ -173,3 +173,38 @@ class HaRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 await self.hass.async_block_till_done()
                 self.assertIs(self.runtime.snapshot.vent_output.value, expected)
             calls.assert_not_called()
+
+    async def test_optional_fault_binding_and_loss(self):
+        from custom_components.fourvrs_server_room.core.models import Mode
+        self.hass.states.async_set("sensor.outdoor", "12.8", {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("climate.ac", "off", {"temperature": 22})
+        self.hass.states.async_set("binary_sensor.online", "on")
+        self.hass.states.async_set("binary_sensor.battery", "off")
+        data = settings(climate="climate.ac", ups_online="binary_sensor.online",
+                        ups_on_battery="binary_sensor.battery")
+        self.runtime = Runtime(self.hass, SimpleNamespace(entry_id="test"), data)
+        with patch.object(type(self.hass.services), "async_call", AsyncMock()) as calls:
+            self.runtime.start()
+            self.assertIsNone(self.runtime.snapshot.ac_fault)
+            self.assertFalse(self.runtime.snapshot.ac_fault_monitored)
+            self.assertIs(self.runtime.status.decision.desired, Mode.AIR_CONDITIONING)
+            for value in ("unavailable", "unknown"):
+                self.hass.states.async_set("climate.ac", value)
+                await self.hass.async_block_till_done()
+                self.assertFalse(self.runtime.snapshot.ac_available)
+                self.assertIsNot(self.runtime.status.decision.desired, Mode.AIR_CONDITIONING)
+                self.assertEqual(self.runtime.reported_mode, "unknown")
+            self.hass.states.async_set("climate.ac", "off", {"temperature": 22})
+            await self.hass.async_block_till_done()
+            self.assertIs(self.runtime.status.decision.desired, Mode.AIR_CONDITIONING)
+            self.runtime.stop()
+            self.hass.states.async_set("binary_sensor.fault", "off")
+            self.runtime = Runtime(self.hass, SimpleNamespace(entry_id="test"),
+                                   dict(data, ac_fault="binary_sensor.fault"))
+            self.runtime.start()
+            self.assertIs(self.runtime.status.decision.desired, Mode.AIR_CONDITIONING)
+            for value in ("on", "unknown", "unavailable"):
+                self.hass.states.async_set("binary_sensor.fault", value)
+                await self.hass.async_block_till_done()
+                self.assertIsNot(self.runtime.status.decision.desired, Mode.AIR_CONDITIONING)
+            calls.assert_not_called()

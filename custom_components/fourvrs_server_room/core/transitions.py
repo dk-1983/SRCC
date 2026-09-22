@@ -152,7 +152,7 @@ class TransitionPlanner:
             return Step("BLOCKED", reason="AC_HARD_MIN_BLOCK")
         if snapshot.power is not Power.MAINS:
             return Step("BLOCKED", reason="AC_REQUIRES_MAINS")
-        if not snapshot.ac_available or snapshot.ac_fault is not False or snapshot.ac_ineffective:
+        if not snapshot.ac_available or not snapshot.ac_fault_allows_operation or snapshot.ac_ineffective:
             return Step("BLOCKED", reason="AC_UNAVAILABLE")
         if (tout < 0 and not snapshot.vent_ineffective and snapshot.vent_available
                 and not snapshot.proved(snapshot.ac_mode, "cool", self.max_age)):

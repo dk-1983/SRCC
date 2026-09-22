@@ -290,3 +290,26 @@ class ConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OptionalAcFaultTests(unittest.TestCase):
+    def test_policy_and_planner_distinguish_absent_from_lost_fault_signal(self):
+        for monitored, fault, allowed in ((False, None, True), (True, None, False),
+                                          (True, True, False), (False, True, False),
+                                          (True, False, True)):
+            with self.subTest(monitored=monitored, fault=fault):
+                state = snapshot(ac_fault_monitored=monitored, ac_fault=fault)
+                decision = choose(state, Config(), max_age=60)
+                self.assertEqual(decision.desired is Mode.AIR_CONDITIONING, allowed)
+                planner = TransitionPlanner(Config(), max_age=60, timeout=30, ac_target=22)
+                step = planner.advance(state, Mode.AIR_CONDITIONING, automatic=True,
+                                       ready=True, timing_allowed=True)
+                self.assertEqual(step.action is Action.AC_COOL, allowed)
+
+    def test_absent_fault_does_not_bypass_ac_availability_or_minimum(self):
+        for changes in ({"ac_available": False}, {"tout": temp(-5)}):
+            state = snapshot(ac_fault_monitored=False, ac_fault=None, **changes)
+            self.assertIsNot(choose(state, Config(), max_age=60).desired, Mode.AIR_CONDITIONING)
+            step = TransitionPlanner(Config(), max_age=60, timeout=30, ac_target=22).advance(
+                state, Mode.AIR_CONDITIONING, automatic=True, ready=True, timing_allowed=True)
+            self.assertIsNot(step.action, Action.AC_COOL)
