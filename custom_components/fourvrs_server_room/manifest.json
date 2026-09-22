@@ -4,7 +4,7 @@
   "codeowners": ["@dk-1983"],
   "config_flow": true,
   "documentation": "https://github.com/dk-1983/SRCC",
-  "integration_type": "helper",
+  "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/dk-1983/SRCC/issues",
   "single_config_entry": true,
