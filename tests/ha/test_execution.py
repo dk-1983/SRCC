@@ -1,0 +1,302 @@
+"""Real HA services with simulated equipment and timestamped readbacks."""
+import asyncio
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+
+from custom_components.fourvrs_server_room.runtime import Runtime
+from custom_components.fourvrs_server_room.configuration import validate
+from custom_components.fourvrs_server_room.core.models import Mode
+from types import SimpleNamespace
+
+
+def settings(**changes):
+    return dict(trm_temperature="sensor.tin", outdoor_temperature="sensor.tout",
+                vent_enable="number.cdr", vent_output="switch.fan", climate="climate.ac",
+                ups_online="binary_sensor.online", ups_on_battery="binary_sensor.battery",
+                max_age=120, backup_max_skew=10, sample_tolerance=5, recovery_max_gap=70,
+                reported_freshness_confirmed=True, control_profile_enabled=True,
+                equipment_readback_confirmed=True, shared_mains_confirmed=True,
+                ac_target=22, emergency_on=24, emergency_off=20, emergency_delta=0,
+                command_timeout=5, condition_hold=0, minimum_dwell=0, minimum_ac_off=0,
+                **changes)
+
+
+class ExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.tmp = tempfile.TemporaryDirectory(dir="/repo/.local")
+        self.hass = HomeAssistant(self.tmp.name)
+        self.calls = []
+        self.feedback = True
+        self.block = None
+        self.hvac = {"temperature": 22, "hvac_modes": ["off", "cool", "auto"],
+                     "min_temp": 16, "max_temp": 30}
+        for entity_id, value in (("sensor.tin", "25"), ("sensor.tout", "12")):
+            self.hass.states.async_set(entity_id, value, {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("number.cdr", "1")
+        self.hass.states.async_set("switch.fan", "on")
+        self.hass.states.async_set("climate.ac", "off", self.hvac)
+        self.hass.states.async_set("binary_sensor.online", "on")
+        self.hass.states.async_set("binary_sensor.battery", "off")
+        for domain, services in (("number", ("set_value",)), ("switch", ("turn_on", "turn_off")),
+                                 ("climate", ("set_hvac_mode", "set_temperature"))):
+            for service in services:
+                self.hass.services.async_register(domain, service, self.service)
+        self.runtime = Runtime(self.hass, SimpleNamespace(entry_id="test"), validate(settings()))
+        self.runtime.start()
+
+    async def asyncTearDown(self):
+        self.runtime.stop()
+        if self.runtime.executor.task:
+            await self.runtime.executor.task
+        await self.hass.async_stop(force=True)
+        self.tmp.cleanup()
+
+    async def service(self, call):
+        self.calls.append((call.domain, call.service, dict(call.data)))
+        if self.block is not None:
+            await self.block.wait()
+        if not self.feedback:
+            return
+        entity_id = call.data["entity_id"]
+        if call.domain == "number":
+            self.hass.states.async_set(entity_id, str(call.data["value"]))
+        elif call.domain == "switch":
+            self.hass.states.async_set(entity_id, "on" if call.service == "turn_on" else "off")
+        else:
+            attributes = dict(self.hvac)
+            attributes["temperature"] = call.data.get("temperature", attributes["temperature"])
+            self.hass.states.async_set(entity_id, call.data["hvac_mode"], attributes)
+
+    async def settle(self):
+        await self.hass.async_block_till_done()
+
+    def names(self):
+        return [(domain, service) for domain, service, _ in self.calls]
+
+    async def test_startup_never_sends_and_enable_orders_cdr_fan_ac(self):
+        await self.settle()
+        self.assertFalse(self.runtime.executor.enabled)
+        self.assertEqual(self.calls, [])
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.names(), [("number", "set_value"), ("switch", "turn_off"),
+                                       ("climate", "set_temperature")])
+        self.assertEqual(self.calls[-1][2]["hvac_mode"], "cool")
+        self.assertEqual(self.calls[-1][2]["temperature"], 22)
+        self.assertTrue(self.runtime.executor.step.complete)
+
+    async def test_cool_to_automatic_vent_stops_ac_first(self):
+        self.hass.states.async_set("sensor.tout", "-2", {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.names(), [("climate", "set_hvac_mode"), ("number", "set_value")])
+        self.assertEqual(self.calls[0][2]["hvac_mode"], "off")
+        self.assertEqual(self.calls[1][2]["value"], 1)
+
+    async def test_missing_readback_times_out_without_next_command_or_retry(self):
+        self.feedback = False
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.names(), [("number", "set_value")])
+        with patch("custom_components.fourvrs_server_room.runtime.monotonic",
+                   return_value=self.runtime._clock_anchor + 6):
+            self.runtime.refresh()
+            await self.settle()
+        self.assertEqual(self.runtime.executor.error, "READBACK_TIMEOUT")
+        self.runtime.refresh()
+        await self.settle()
+        self.assertEqual(len(self.calls), 1)
+
+    async def test_battery_manual_fan_and_mains_return(self):
+        self.hass.states.async_set("sensor.tout", "5", {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "unavailable")
+        self.hass.states.async_set("binary_sensor.online", "off")
+        self.hass.states.async_set("binary_sensor.battery", "on")
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.names(), [("number", "set_value"), ("switch", "turn_on")])
+        self.assertTrue(self.runtime.snapshot.ac_unpowered)
+        self.calls.clear()
+        self.hass.states.async_set("binary_sensor.online", "on")
+        self.hass.states.async_set("binary_sensor.battery", "off")
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        await self.settle()
+        self.assertFalse(self.runtime.snapshot.ac_unpowered)
+        self.assertEqual(self.names(), [("switch", "turn_off")])
+        self.assertIs(self.runtime.status.decision.desired, Mode.AIR_CONDITIONING)
+
+    async def test_battery_fan_stops_at_ten_degrees(self):
+        self.hass.states.async_set("sensor.tout", "10", {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("climate.ac", "unavailable")
+        self.hass.states.async_set("binary_sensor.online", "off")
+        self.hass.states.async_set("binary_sensor.battery", "on")
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.names(), [("number", "set_value"), ("switch", "turn_off")])
+
+    async def test_unavailable_ac_on_mains_does_not_allow_fan_start(self):
+        self.hass.states.async_set("sensor.tout", "-2", {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "unavailable")
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.runtime.executor.step.reason, "AC_OFF_UNPROVEN")
+
+    async def test_disable_during_awaited_service_prevents_next_command(self):
+        self.block = asyncio.Event()
+        self.runtime.executor.enable()
+        for _ in range(30):
+            await asyncio.sleep(0)
+            if self.calls:
+                break
+        self.assertEqual(len(self.calls), 1)
+        self.runtime.executor.disable()
+        self.block.set()
+        await self.settle()
+        self.assertEqual(len(self.calls), 1)
+        self.assertFalse(self.runtime.executor.enabled)
+
+    async def test_service_exception_latches_and_does_not_retry(self):
+        async def fail(call):
+            raise HomeAssistantError("SIMULATED_FAILURE")
+        self.hass.services.async_register("number", "set_value", fail)
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertIn("SIMULATED_FAILURE", self.runtime.executor.error)
+        self.assertEqual(self.runtime.executor.step.phase, "ERROR")
+
+    async def test_shared_power_evidence_requires_explicit_profile_and_fresh_signals(self):
+        self.hass.states.async_set("climate.ac", "unavailable")
+        self.hass.states.async_set("binary_sensor.online", "off")
+        self.hass.states.async_set("binary_sensor.battery", "on")
+        self.runtime.refresh()
+        self.assertTrue(self.runtime.snapshot.ac_unpowered)
+        self.runtime.data["shared_mains_confirmed"] = False
+        self.runtime.refresh()
+        self.assertFalse(self.runtime.snapshot.ac_unpowered)
+        self.runtime.data["shared_mains_confirmed"] = True
+        with patch("custom_components.fourvrs_server_room.runtime.monotonic",
+                   return_value=self.runtime._clock_anchor + 121):
+            self.runtime.refresh()
+        self.assertFalse(self.runtime.snapshot.ac_unpowered)
+
+    async def test_minimum_off_delays_ac_without_delaying_fan_stop(self):
+        self.runtime.data["minimum_ac_off"] = 180
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.names(), [("number", "set_value"), ("switch", "turn_off")])
+        self.assertEqual(self.runtime.executor.step.phase, "WAIT_AC_MINIMUM_OFF")
+
+    async def test_source_loss_during_cdr_command_prevents_cool(self):
+        original = self.service
+        async def lose_temperature(call):
+            await original(call)
+            self.hass.states.async_set("sensor.tin", "unavailable")
+        self.hass.services.async_register("number", "set_value", lose_temperature)
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.names(), [("number", "set_value")])
+        self.assertEqual(self.runtime.executor.step.reason, "TEMPERATURE_UNTRUSTED")
+
+    async def test_battery_threshold_hysteresis(self):
+        self.hass.states.async_set("sensor.tout", "5", {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "unavailable")
+        self.hass.states.async_set("binary_sensor.online", "off")
+        self.hass.states.async_set("binary_sensor.battery", "on")
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.hass.states.get("switch.fan").state, "on")
+        for value, expected in ((23, "on"), (20, "off"), (23, "off"), (24, "on")):
+            self.hass.states.async_set("sensor.tin", str(value), {"unit_of_measurement": "°C"})
+            await self.settle()
+            self.assertEqual(self.hass.states.get("switch.fan").state, expected)
+
+    async def test_turning_off_does_not_undo_last_equipment_state(self):
+        self.runtime.executor.enable()
+        await self.settle()
+        count = len(self.calls)
+        self.runtime.executor.disable()
+        self.hass.states.async_set("sensor.tout", "-3", {"unit_of_measurement": "°C"})
+        await self.settle()
+        self.assertEqual(len(self.calls), count)
+        self.assertEqual(self.hass.states.get("climate.ac").state, "cool")
+
+    async def test_no_output_control_before_permission_readback(self):
+        self.feedback = False
+        self.runtime.executor.enable()
+        await self.settle()
+        self.hass.states.async_set("number.cdr", "unavailable")
+        await self.settle()
+        self.assertEqual(self.names(), [("number", "set_value")])
+
+    async def test_unconfigured_profile_cannot_be_armed(self):
+        self.runtime.data["control_profile_enabled"] = False
+        with self.assertRaises(HomeAssistantError):
+            self.runtime.executor.enable()
+        self.assertFalse(self.runtime.executor.enabled)
+        self.assertEqual(self.calls, [])
+
+    async def test_unload_waits_for_inflight_command_and_sends_nothing_else(self):
+        from custom_components.fourvrs_server_room import async_unload_entry
+        from unittest.mock import AsyncMock
+        self.block = asyncio.Event()
+        self.runtime.executor.enable()
+        for _ in range(30):
+            await asyncio.sleep(0)
+            if self.calls:
+                break
+        entry = SimpleNamespace(runtime_data=self.runtime)
+        self.hass.config_entries = SimpleNamespace(async_unload_platforms=AsyncMock(return_value=True))
+        unloading = asyncio.create_task(async_unload_entry(self.hass, entry))
+        await asyncio.sleep(0)
+        self.assertTrue(self.runtime.stopped)
+        self.assertFalse(unloading.done())
+        self.block.set()
+        self.assertTrue(await unloading)
+        self.assertEqual(len(self.calls), 1)
+        self.hass.config_entries = None
+
+    async def test_control_form_and_fahrenheit_target(self):
+        from custom_components.fourvrs_server_room.config_flow import schema
+        from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+        data = validate(schema()(settings()))
+        self.assertTrue(data["control_profile_enabled"])
+        self.hass.config.units = US_CUSTOMARY_SYSTEM
+        self.hvac.update(temperature=70, min_temp=60, max_temp=90)
+        self.hass.states.async_set("climate.ac", "off", self.hvac)
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertAlmostEqual(self.calls[-1][2]["temperature"], 71.6)
+        self.assertTrue(self.runtime.executor.step.complete)
+
+    async def test_switch_permission_profile(self):
+        self.runtime.stop()
+        self.hass.states.async_set("switch.cdr", "on")
+        data = settings()
+        data["vent_enable"] = "switch.cdr"
+        self.runtime = Runtime(self.hass, SimpleNamespace(entry_id="test"), validate(data))
+        self.runtime.start()
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.names(), [("switch", "turn_off"), ("switch", "turn_off"),
+                                       ("climate", "set_temperature")])
+        self.assertEqual(self.calls[0][2]["entity_id"], "switch.cdr")
+        self.assertEqual(self.calls[1][2]["entity_id"], "switch.fan")
+
+    async def test_out_of_range_target_blocks_ac_command(self):
+        self.runtime.data["ac_target"] = 40
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.runtime.executor.error, "AC_TARGET_OUT_OF_RANGE")
+        self.assertNotIn(("climate", "set_temperature"), self.names())

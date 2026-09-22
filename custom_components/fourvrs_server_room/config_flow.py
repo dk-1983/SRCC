@@ -1,4 +1,4 @@
-"""UI configuration for the observation-only release."""
+"""Observation inputs and optional command-profile configuration."""
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -6,7 +6,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .configuration import ConfigurationError, validate
-from .const import CONFIG_FIELDS, DOMAIN, ENTITY_ROLES, NAME, REQUIRED_ROLES, TIMING_FIELDS
+from .const import CONFIG_FIELDS, DOMAIN, ENTITY_ROLES, NAME, REQUIRED_ROLES, TIMING_FIELDS, OPTIONAL_CORE_FIELDS, EXECUTION_DEFAULTS, CONTROL_TEMPERATURE_DEFAULTS
 from .core.models import Config
 
 
@@ -27,6 +27,14 @@ def schema(defaults=None):
                                           unit_of_measurement="s" if key == "recovery_hold" else "°C"))
     fields[vol.Required("reported_freshness_confirmed", default=defaults.get(
         "reported_freshness_confirmed", False))] = selector.BooleanSelector()
+    for key in ("control_profile_enabled", "equipment_readback_confirmed", "shared_mains_confirmed"):
+        fields[vol.Optional(key, default=defaults.get(key, False))] = selector.BooleanSelector()
+    for key in ("ac_target", *OPTIONAL_CORE_FIELDS):
+        fields[vol.Optional(key, description={"suggested_value": defaults.get(key, CONTROL_TEMPERATURE_DEFAULTS.get(key))})] = selector.NumberSelector(
+            selector.NumberSelectorConfig(step="any", mode=selector.NumberSelectorMode.BOX, unit_of_measurement="°C"))
+    for key, value in EXECUTION_DEFAULTS.items():
+        fields[vol.Optional(key, default=defaults.get(key, value))] = selector.NumberSelector(
+            selector.NumberSelectorConfig(min=0, step="any", mode=selector.NumberSelectorMode.BOX, unit_of_measurement="s"))
     return vol.Schema(fields)
 
 

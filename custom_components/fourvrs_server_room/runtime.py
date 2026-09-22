@@ -1,4 +1,4 @@
-"""Home Assistant read-only runtime and callback cleanup."""
+"""Home Assistant input runtime, observation and serialized execution scheduling."""
 from datetime import timedelta
 from time import monotonic
 
@@ -9,7 +9,7 @@ from homeassistant.util import dt as dt_util
 from .configuration import core_config
 from .const import ENTITY_ROLES
 from .core.controller import Observer
-from .core.models import Mode, Quality, Sample, Snapshot
+from .core.models import Mode, Power, Quality, Sample, Snapshot
 from .ha_inputs import power_state, read_sample, reported_mode
 
 
@@ -30,6 +30,10 @@ class Runtime:
         self.stopped = False
         self.backups = ()
         self.next_backup = 0.0
+        self.demand = None
+        self.vent_failed = False
+        from .execution import Executor
+        self.executor = Executor(self)
 
     @callback
     def start(self):
@@ -43,6 +47,7 @@ class Runtime:
     @callback
     def stop(self):
         self.stopped = True
+        self.executor.disable()
         for cancel in self.unsubscribers:
             cancel()
         self.unsubscribers.clear()
@@ -117,13 +122,40 @@ class Runtime:
             vent_enabled=enabled, vent_output=output, ac_mode=mode, ac_target=target,
             ac_fault=fault.value if fault.fresh(now, age) else None,
             ac_fault_monitored=bool(self.data.get("ac_fault")),
+            vent_ineffective=self.vent_failed,
+            ac_unpowered=(self.data.get("shared_mains_confirmed") is True
+                          and mode.quality is Quality.UNAVAILABLE
+                          and read("ups_online", "bool").fresh(now, age)
+                          and read("ups_online", "bool").value is False
+                          and read("ups_on_battery", "bool").fresh(now, age)
+                          and read("ups_on_battery", "bool").value is True),
         )
         from dataclasses import replace
         self.reported_mode = reported_mode(state, age)
         current = Mode(self.reported_mode) if self.reported_mode not in ("unknown", "conflict") else None
         state = replace(state, current=current)
         self.snapshot = state
-        self.status = self.observer.evaluate(state, backups=self.backups,
-                                             other_critical=self.reported_mode == "conflict")
+        from .core.inputs import select_temperature, Fallback
+        selection = select_temperature(state.tin, self.backups, now=now, max_age=age,
+                                       fallback=Fallback.MEAN_ALLOW_ONE, max_skew=self.data["backup_max_skew"])
+        value = selection.sample.value if selection.sample else None
+        config = self.observer.config
+        if value is None or config.emergency_on is None:
+            self.demand = None
+        elif value >= config.emergency_on or value >= config.critical_on:
+            self.demand = True
+        elif value <= config.emergency_off:
+            self.demand = False
+        elif self.demand is None:
+            self.demand = state.proved(state.vent_output, True, age)
+        self.status = self.observer.evaluate(state, backups=self.backups, cooling_required=self.demand,
+                                             other_critical=self.reported_mode == "conflict" and not self.executor.enabled)
+        if self.status.trend.ineffective is True:
+            self.vent_failed = True
+        self.notify()
+        self.executor.schedule()
+
+    @callback
+    def notify(self):
         for listener in tuple(self.listeners):
             listener()

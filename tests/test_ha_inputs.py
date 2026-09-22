@@ -75,3 +75,15 @@ class ConfigurationTests(unittest.TestCase):
     def test_fan_output_accepts_readback_switch(self):
         for entity_id in ("switch.fan", "binary_sensor.fan"):
             self.assertEqual(validate(settings(vent_output=entity_id))["vent_output"], entity_id)
+
+    def test_execution_profile_requires_writable_sources_and_contract(self):
+        control = dict(control_profile_enabled=True, equipment_readback_confirmed=True,
+                       climate="climate.ac", vent_enable="number.cdr", vent_output="switch.fan",
+                       ups_online="binary_sensor.online", ups_on_battery="binary_sensor.battery",
+                       ac_target=22, emergency_on=24, emergency_off=20, emergency_delta=0)
+        self.assertEqual(validate(settings(**control))["command_timeout"], 30)
+        for changes in ({"vent_enable": "sensor.cdr"}, {"vent_output": "binary_sensor.fan"},
+                        {"equipment_readback_confirmed": False}, {"command_timeout": 0},
+                        {"ac_target": float("nan")}, {"emergency_off": 25}):
+            with self.subTest(changes=changes), self.assertRaises(ConfigurationError):
+                validate(settings(**(control | changes)))

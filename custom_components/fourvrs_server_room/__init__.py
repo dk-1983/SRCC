@@ -1,11 +1,11 @@
-"""Server Room Climate Controller: read-only Home Assistant observation."""
+"""Server Room Climate Controller: Home Assistant observation and opt-in execution."""
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 
-PLATFORMS = ("sensor", "binary_sensor")
+PLATFORMS = ("sensor", "binary_sensor", "switch")
 
 
 async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool:
@@ -33,5 +33,8 @@ async def _options_updated(hass, entry):
 async def async_unload_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        entry.runtime_data.stop()
+        runtime = entry.runtime_data
+        runtime.stop()
+        if runtime.executor.task is not None:
+            await runtime.executor.task
     return unloaded

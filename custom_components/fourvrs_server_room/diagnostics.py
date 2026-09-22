@@ -7,7 +7,9 @@ async def async_get_config_entry_diagnostics(hass, entry):
     status = runtime.status
     return {
         "version": VERSION,
-        "observation_only": True,
+        "observation_only": not runtime.executor.enabled,
+        "execution_phase": runtime.executor.step.phase,
+        "execution_error": bool(runtime.executor.error),
         "bound_roles": [role for role in ENTITY_ROLES if role in runtime.data],
         "settings": {key: runtime.data.get(key) for key in (*CONFIG_FIELDS, *TIMING_FIELDS)},
         "reported_mode": runtime.reported_mode,

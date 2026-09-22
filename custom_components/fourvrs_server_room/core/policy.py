@@ -11,6 +11,18 @@ def choose(snapshot: Snapshot, config: Config, *, max_age: float,
     if tin is None or tout is None:
         return Decision(None, "TEMPERATURE_UNTRUSTED", ("INPUT_QUALITY",))
     urgent = tin >= config.critical_on
+    if snapshot.power is Power.BATTERY and config.emergency_on is not None:
+        if not snapshot.vent_available:
+            return Decision(Mode.NO_COOLING_AVAILABLE, "VENT_UNAVAILABLE", urgent=urgent)
+        if cooling_required is None:
+            return Decision(None, "EMERGENCY_DEMAND_UNSET", urgent=urgent)
+        if not cooling_required and not urgent:
+            return Decision(Mode.IDLE, "NO_EMERGENCY_DEMAND")
+        if config.emergency_delta is None:
+            return Decision(None, "EMERGENCY_DELTA_UNSET", urgent=urgent)
+        if tout >= config.emergency_outdoor_max or tin <= tout or tin - tout < config.emergency_delta:
+            return Decision(Mode.IDLE, "OUTDOOR_NOT_USEFUL", urgent=urgent)
+        return Decision(Mode.EMERGENCY_VENTILATION, "BATTERY_VENTILATION", urgent=urgent)
     if snapshot.power is not Power.MAINS:
         # Battery thresholds and load budget are not agreed. Never assume mains
         # or issue a new cooling goal based solely on On Battery.
@@ -24,7 +36,7 @@ def choose(snapshot: Snapshot, config: Config, *, max_age: float,
         return Decision(Mode.AIR_CONDITIONING, "HOLD_AC", urgent=urgent)
     if (snapshot.current is None and config.ac_to_vent < tout < config.vent_to_ac
             and vent_ok and ac_ok):
-        return Decision(None, "INITIAL_MODE_POLICY_REQUIRED", urgent=urgent)
+        return Decision(Mode.VENTILATION, "INITIAL_VENT_SELECTED", urgent=urgent)
     if vent_ok and tout < config.vent_to_ac:
         # Critical temperature triggers immediate reevaluation, not an invented
         # claim that an otherwise healthy fan has failed.
@@ -42,6 +54,8 @@ def choose(snapshot: Snapshot, config: Config, *, max_age: float,
         return Decision(Mode.IDLE, "NO_EMERGENCY_DEMAND")
     if config.emergency_delta is None:
         return Decision(None, "EMERGENCY_DELTA_UNSET", urgent=urgent)
+    if tout >= config.emergency_outdoor_max or tin <= tout:
+        return Decision(Mode.IDLE, "OUTDOOR_NOT_USEFUL", urgent=urgent)
     if tin - tout >= config.emergency_delta:
         return Decision(Mode.EMERGENCY_VENTILATION, "AC_UNAVAILABLE_VENT_USEFUL", urgent=urgent)
     return Decision(Mode.NO_COOLING_AVAILABLE, "OUTDOOR_NOT_USEFUL", urgent=urgent)

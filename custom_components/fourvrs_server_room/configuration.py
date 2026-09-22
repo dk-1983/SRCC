@@ -1,7 +1,7 @@
 """Validation shared by setup and Config Flow; no equipment side effects."""
 from math import isfinite
 
-from .const import CONFIG_FIELDS, ENTITY_ROLES, REQUIRED_ROLES, TIMING_FIELDS
+from .const import CONFIG_FIELDS, ENTITY_ROLES, REQUIRED_ROLES, TIMING_FIELDS, OPTIONAL_CORE_FIELDS, EXECUTION_DEFAULTS, EXECUTION_FIELDS
 from .core.models import Config
 
 
@@ -12,7 +12,7 @@ class ConfigurationError(ValueError):
 
 
 def core_config(data: dict) -> Config:
-    return Config(**{key: data[key] for key in CONFIG_FIELDS if key in data})
+    return Config(**{key: data[key] for key in (*CONFIG_FIELDS, *OPTIONAL_CORE_FIELDS) if key in data})
 
 
 def validate(data: dict) -> dict:
@@ -49,4 +49,24 @@ def validate(data: dict) -> dict:
         core_config(result)
     except (ValueError, TypeError) as error:
         raise ConfigurationError("invalid_thresholds") from error
+    for key in EXECUTION_FIELDS:
+        if key not in result:
+            continue
+        value = result[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
+            raise ConfigurationError("invalid_execution")
+        if key != "ac_target" and (value < 0 or (key == "command_timeout" and value == 0)):
+            raise ConfigurationError("invalid_execution")
+    if result.get("control_profile_enabled", False):
+        if not all(result.get(key) for key in ("climate", "vent_enable", "vent_output",
+                                                "ups_online", "ups_on_battery")):
+            raise ConfigurationError("missing_control_entities")
+        if result["vent_enable"].split(".")[0] not in ("number", "switch") or not result["vent_output"].startswith("switch."):
+            raise ConfigurationError("control_entities_not_writable")
+        if "ac_target" not in result or not all(key in result for key in OPTIONAL_CORE_FIELDS[:3]):
+            raise ConfigurationError("missing_control_settings")
+        if result.get("equipment_readback_confirmed") is not True:
+            raise ConfigurationError("control_readback_required")
+        for key, value in EXECUTION_DEFAULTS.items():
+            result.setdefault(key, value)
     return result

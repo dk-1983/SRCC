@@ -77,6 +77,9 @@ class Config:
     warning_on: float | None = 26.0
     emergency_delta: float | None = None
     minimum_vent_rise: float | None = None
+    emergency_on: float | None = None
+    emergency_off: float | None = None
+    emergency_outdoor_max: float = 10.0
     # Direction only is agreed; a nonzero noise margin can be configured.
     minimum_recovery_drop: float = 0.0
 
@@ -101,10 +104,14 @@ class Config:
             raise ValueError("at least three samples required")
         if self.vent_observation != self.sample_interval * self.vent_samples:
             raise ValueError("observation must equal interval times sample count")
-        if self.emergency_delta is not None and self.emergency_delta <= 0:
-            raise ValueError("emergency delta must be positive")
+        if self.emergency_delta is not None and self.emergency_delta < 0:
+            raise ValueError("emergency delta must be nonnegative")
         if self.minimum_vent_rise is not None and self.minimum_vent_rise <= 0:
             raise ValueError("minimum ventilation rise must be positive")
+        if (self.emergency_on is None) != (self.emergency_off is None):
+            raise ValueError("both emergency thresholds required")
+        if self.emergency_on is not None and self.emergency_off >= self.emergency_on:
+            raise ValueError("emergency off must be below on")
         if self.minimum_recovery_drop < 0:
             raise ValueError("recovery drop must not be negative")
 
@@ -136,6 +143,7 @@ class Snapshot:
 
     # Unassigned optional fault input differs from a configured input with lost data.
     ac_fault_monitored: bool = True
+    ac_unpowered: bool = False
 
     @property
     def ac_fault_allows_operation(self) -> bool:

@@ -22,9 +22,10 @@ class SrccBinarySensor(SrccEntity, BinarySensorEntity):
         if status is None:
             return None
         return {
-            "controller_degraded": status.degraded or status.decision.desired is None or not self.runtime.snapshot.tout.fresh(
+            "controller_degraded": bool(self.runtime.executor.error) or (self.runtime.executor.enabled
+                and self.runtime.executor.step.phase == "BLOCKED") or status.degraded or status.decision.desired is None or not self.runtime.snapshot.tout.fresh(
                 self.runtime.snapshot.now, self.runtime.data["max_age"]),
             "backup_sensor_problem": bool(status.temperature.warning_sources),
             "thermal_critical": status.alarm.thermal_critical,
-            "observation_only": True,
+            "observation_only": not self.runtime.executor.enabled,
         }[self.key]

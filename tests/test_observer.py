@@ -69,11 +69,11 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(result.sample.value, 25)
         self.assertEqual(result.warning_sources, ("b1",))
 
-    def test_initial_dead_band_not_assumed(self):
+    def test_initial_dead_band_prefers_ventilation(self):
         state = snapshot(tout=temp(0.5), current=None)
         result = self.observer().evaluate(state)
-        self.assertIsNone(result.decision.desired)
-        self.assertEqual(result.decision.reason, "INITIAL_MODE_POLICY_REQUIRED")
+        self.assertEqual(result.decision.desired, Mode.VENTILATION)
+        self.assertEqual(result.decision.reason, "INITIAL_VENT_SELECTED")
 
 
 if __name__ == "__main__":

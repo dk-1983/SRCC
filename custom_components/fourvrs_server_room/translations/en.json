@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Server Room Climate Controller",
-        "description": "Observe existing entities without sending equipment commands. Temperatures are required; equipment roles are optional. Configure publication-age limits for your upstream integrations. Values do not prove physical readback. Backup temperatures are sampled once per minute. Settings can be changed later. Primary and outdoor sensors may come from any compatible equipment. Assign zero, one or two backup sensors; each is optional.",
+        "description": "Observation by default. Configure the command profile, then enable the SRCC automatic control switch. Restart or options reload disarms automation. Backup sensors are independently optional. Timing settings must match source entity updates.",
         "data": {
           "trm_temperature": "Room / rack temperature (primary sensor)",
           "outdoor_temperature": "Outdoor air temperature",
@@ -27,7 +27,20 @@
           "ac_hard_min": "AC minimum outdoor temperature (start forbidden at or below)",
           "vent_to_ac": "Outdoor temperature: ventilation to AC",
           "ac_to_vent": "Outdoor temperature: AC to ventilation",
-          "reported_freshness_confirmed": "Use HA publication age for observation; I understand this does not prove physical device freshness"
+          "reported_freshness_confirmed": "Use HA publication age for observation; I understand this does not prove physical device freshness",
+          "control_profile_enabled": "Enable command capability (automation switch starts OFF)",
+          "equipment_readback_confirmed": "Equipment states are confirmed readbacks; C.dr 0 permits manual output control and 1 restores automatic control",
+          "shared_mains_confirmed": "AC and UPS share mains; AC has no backup supply and powers its communication controller",
+          "ac_target": "AC cooling setpoint",
+          "emergency_on": "Backup fan ON temperature",
+          "emergency_off": "Backup fan OFF temperature",
+          "emergency_delta": "Minimum indoor minus outdoor difference for backup fan",
+          "emergency_outdoor_max": "Backup fan outdoor limit (blocked at or above)",
+          "minimum_vent_rise": "Minimum rise over ventilation observation window (optional)",
+          "command_timeout": "Command / readback timeout",
+          "condition_hold": "Cooling choice confirmation duration",
+          "minimum_dwell": "Minimum time between normal cooling changes",
+          "minimum_ac_off": "Minimum wait before starting stopped AC"
         }
       }
     },
@@ -40,7 +53,12 @@
       "invalid_thresholds": "Check the temperature thresholds and recovery duration.",
       "entity_not_found": "A selected entity is not present in HA.",
       "invalid_temperature_unit": "Temperature units must be Celsius, Fahrenheit or Kelvin.",
-      "self_reference": "SRCC outputs cannot be used as SRCC inputs."
+      "self_reference": "SRCC outputs cannot be used as SRCC inputs.",
+      "invalid_execution": "Check finite command settings and positive timeout.",
+      "missing_control_entities": "Control requires climate, writable ventilation permission and output, and both UPS signals.",
+      "control_entities_not_writable": "Ventilation permission must be number or switch; fan output must be switch.",
+      "missing_control_settings": "Enter AC target and backup fan ON/OFF temperatures and minimum temperature difference.",
+      "control_readback_required": "Confirm tested equipment readback before enabling the command profile."
     },
     "abort": {
       "single_instance_allowed": "Only one controller is supported in this release."
@@ -50,7 +68,7 @@
     "step": {
       "init": {
         "title": "Server Room Climate Controller",
-        "description": "Observe existing entities without sending equipment commands. Temperatures are required; equipment roles are optional. Configure publication-age limits for your upstream integrations. Values do not prove physical readback. Backup temperatures are sampled once per minute. Settings can be changed later. Primary and outdoor sensors may come from any compatible equipment. Assign zero, one or two backup sensors; each is optional.",
+        "description": "Observation by default. Configure the command profile, then enable the SRCC automatic control switch. Restart or options reload disarms automation. Backup sensors are independently optional. Timing settings must match source entity updates.",
         "data": {
           "trm_temperature": "Room / rack temperature (primary sensor)",
           "outdoor_temperature": "Outdoor air temperature",
@@ -73,7 +91,20 @@
           "ac_hard_min": "AC minimum outdoor temperature (start forbidden at or below)",
           "vent_to_ac": "Outdoor temperature: ventilation to AC",
           "ac_to_vent": "Outdoor temperature: AC to ventilation",
-          "reported_freshness_confirmed": "Use HA publication age for observation; I understand this does not prove physical device freshness"
+          "reported_freshness_confirmed": "Use HA publication age for observation; I understand this does not prove physical device freshness",
+          "control_profile_enabled": "Enable command capability (automation switch starts OFF)",
+          "equipment_readback_confirmed": "Equipment states are confirmed readbacks; C.dr 0 permits manual output control and 1 restores automatic control",
+          "shared_mains_confirmed": "AC and UPS share mains; AC has no backup supply and powers its communication controller",
+          "ac_target": "AC cooling setpoint",
+          "emergency_on": "Backup fan ON temperature",
+          "emergency_off": "Backup fan OFF temperature",
+          "emergency_delta": "Minimum indoor minus outdoor difference for backup fan",
+          "emergency_outdoor_max": "Backup fan outdoor limit (blocked at or above)",
+          "minimum_vent_rise": "Minimum rise over ventilation observation window (optional)",
+          "command_timeout": "Command / readback timeout",
+          "condition_hold": "Cooling choice confirmation duration",
+          "minimum_dwell": "Minimum time between normal cooling changes",
+          "minimum_ac_off": "Minimum wait before starting stopped AC"
         }
       }
     },
@@ -86,7 +117,12 @@
       "invalid_thresholds": "Check the temperature thresholds and recovery duration.",
       "entity_not_found": "A selected entity is not present in HA.",
       "invalid_temperature_unit": "Temperature units must be Celsius, Fahrenheit or Kelvin.",
-      "self_reference": "SRCC outputs cannot be used as SRCC inputs."
+      "self_reference": "SRCC outputs cannot be used as SRCC inputs.",
+      "invalid_execution": "Check finite command settings and positive timeout.",
+      "missing_control_entities": "Control requires climate, writable ventilation permission and output, and both UPS signals.",
+      "control_entities_not_writable": "Ventilation permission must be number or switch; fan output must be switch.",
+      "missing_control_settings": "Enter AC target and backup fan ON/OFF temperatures and minimum temperature difference.",
+      "control_readback_required": "Confirm tested equipment readback before enabling the command profile."
     }
   },
   "entity": {
@@ -137,6 +173,11 @@
       },
       "observation_only": {
         "name": "Observation only"
+      }
+    },
+    "switch": {
+      "automatic_control": {
+        "name": "Automatic control"
       }
     }
   }

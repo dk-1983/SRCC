@@ -1,8 +1,7 @@
 """Single-flight readback planner. No services, transports, retries or I/O.
 
-An Action is only an intent, not evidence of execution. A future HA dispatcher
-must serialize planning and sending, recheck the generation and automation
-flag, and report exceptions with fail(). No production dispatcher exists yet.
+An Action is an intent, not evidence of execution. The HA executor serializes
+planning and dispatch, rechecks its generation, and reports failures with fail().
 """
 from dataclasses import dataclass
 from enum import Enum
@@ -17,6 +16,8 @@ class Action(str, Enum):
     VENT_ENABLE = "vent_enable"
     AC_SET_TARGET = "ac_set_target"
     AC_COOL = "ac_cool"
+    FAN_OFF = "fan_off"
+    FAN_ON = "fan_on"
 
 
 @dataclass(frozen=True)
@@ -30,11 +31,14 @@ class Step:
 
 class TransitionPlanner:
     def __init__(self, config: Config, *, max_age: float,
-                 timeout: float, ac_target: float):
+                 timeout: float, ac_target: float, manual_fan: bool = False,
+                 combined_cool_target: bool = False):
         if not all(isfinite(v) for v in (max_age, timeout, ac_target)):
             raise ValueError("planner settings must be finite")
         if max_age <= 0 or timeout <= 0:
             raise ValueError("max age and timeout must be positive")
+        self.manual_fan = manual_fan
+        self.combined_cool_target = combined_cool_target
         self.config, self.max_age = config, max_age
         self.timeout, self.ac_target = timeout, ac_target
         self.target: Mode | None = None
@@ -50,6 +54,8 @@ class TransitionPlanner:
 
     def _confirmed(self, snapshot: Snapshot, action: Action, since: float) -> bool:
         sample, value = {
+            Action.FAN_OFF: (snapshot.vent_output, False),
+            Action.FAN_ON: (snapshot.vent_output, True),
             Action.AC_OFF: (snapshot.ac_mode, "off"),
             Action.AC_COOL: (snapshot.ac_mode, "cool"),
             Action.VENT_ENABLE: (snapshot.vent_enabled, True),
@@ -102,7 +108,8 @@ class TransitionPlanner:
         if target not in (Mode.IDLE, Mode.VENTILATION,
                           Mode.EMERGENCY_VENTILATION, Mode.AIR_CONDITIONING):
             return Step("BLOCKED", reason="UNSUPPORTED_TARGET")
-        ac_off = snapshot.proved(snapshot.ac_mode, "off", self.max_age)
+        ac_off = snapshot.proved(snapshot.ac_mode, "off", self.max_age) or (
+            snapshot.ac_unpowered and snapshot.power is Power.BATTERY)
         vent_disabled = snapshot.proved(snapshot.vent_enabled, False, self.max_age)
         fan_off = snapshot.proved(snapshot.vent_output, False, self.max_age)
         if target in (Mode.IDLE, Mode.VENTILATION, Mode.EMERGENCY_VENTILATION):
@@ -115,17 +122,26 @@ class TransitionPlanner:
                 tout = snapshot.tout.temperature(snapshot.now, self.max_age)
                 if tin is None or tout is None:
                     return Step("BLOCKED", reason="INPUT_QUALITY")
-                if snapshot.power is not Power.MAINS:
+                if snapshot.power is not Power.MAINS and not (
+                        target is Mode.EMERGENCY_VENTILATION and snapshot.power is Power.BATTERY
+                        and self.config.emergency_on is not None):
                     return Step("BLOCKED", reason="POWER_POLICY_REQUIRED")
                 if not snapshot.vent_available or snapshot.vent_ineffective:
                     return Step("BLOCKED", reason="VENT_UNAVAILABLE")
                 if target is Mode.EMERGENCY_VENTILATION:
                     if self.config.emergency_delta is None:
                         return Step("BLOCKED", reason="EMERGENCY_DELTA_UNSET")
-                    if tin - tout < self.config.emergency_delta:
+                    if (tout >= self.config.emergency_outdoor_max or tin <= tout
+                            or tin - tout < self.config.emergency_delta):
                         return Step("BLOCKED", reason="OUTDOOR_NOT_USEFUL")
                 elif tout >= self.config.vent_to_ac:
                     return Step("BLOCKED", reason="NORMAL_VENT_TEMPERATURE")
+                if target is Mode.EMERGENCY_VENTILATION and self.manual_fan:
+                    if not vent_disabled:
+                        return self._issue(snapshot, Action.VENT_DISABLE)
+                    if not snapshot.proved(snapshot.vent_output, True, self.max_age):
+                        return self._issue(snapshot, Action.FAN_ON)
+                    return Step("COMPLETE", complete=True)
                 if snapshot.proved(snapshot.vent_enabled, True, self.max_age):
                     return Step("COMPLETE", complete=True)
                 return self._issue(snapshot, Action.VENT_ENABLE)
@@ -134,6 +150,10 @@ class TransitionPlanner:
                 return Step("BLOCKED", reason="VENT_DISABLE_UNPROVEN")
             return self._issue(snapshot, Action.VENT_DISABLE)
         if not fan_off:
+            if self.manual_fan:
+                if not snapshot.vent_output.fresh(snapshot.now, self.max_age):
+                    return Step("BLOCKED", reason="VENT_OUTPUT_UNPROVEN")
+                return self._issue(snapshot, Action.FAN_OFF)
             if self.wait_started is None:
                 self.wait_started = snapshot.now
             if snapshot.now - self.wait_started >= self.timeout:
@@ -159,8 +179,8 @@ class TransitionPlanner:
             return Step("BLOCKED", reason="NEGATIVE_TEMPERATURE_RESERVE_ONLY")
         actual = snapshot.ac_target.temperature(snapshot.now, self.max_age)
         if actual is None or abs(actual - self.ac_target) >= 0.01:
-            # The future adapter must guarantee setpoint-only does not power on.
-            if not ac_off:
+            # Combined mode/target dispatch is allowed only after all launch guards.
+            if not ac_off and not self.combined_cool_target:
                 return Step("BLOCKED", reason="TARGET_UPDATE_PROFILE_REQUIRED")
             return self._issue(snapshot, Action.AC_SET_TARGET)
         if not snapshot.proved(snapshot.ac_mode, "cool", self.max_age):

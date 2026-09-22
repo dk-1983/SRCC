@@ -191,7 +191,7 @@ class PolicyTests(unittest.TestCase):
     def test_hot_outdoor_no_emergency_vent(self):
         result = choose(snapshot(tin=temp(29), tout=temp(31), ac_available=False),
                         Config(emergency_delta=5), max_age=60)
-        self.assertEqual(result.desired, Mode.NO_COOLING_AVAILABLE)
+        self.assertEqual(result.desired, Mode.IDLE)
 
     def test_battery_or_unknown_does_not_assume_mains(self):
         for power in (Power.BATTERY, Power.UNKNOWN, Power.CONFLICT):
@@ -313,3 +313,32 @@ class OptionalAcFaultTests(unittest.TestCase):
             step = TransitionPlanner(Config(), max_age=60, timeout=30, ac_target=22).advance(
                 state, Mode.AIR_CONDITIONING, automatic=True, ready=True, timing_allowed=True)
             self.assertIsNot(step.action, Action.AC_COOL)
+
+
+class ManualVentilationTests(unittest.TestCase):
+    def config(self):
+        return Config(emergency_on=24, emergency_off=20, emergency_delta=0)
+
+    def test_reserve_outdoor_limit_and_power_evidence(self):
+        for outdoor, mode in ((9.9, Mode.EMERGENCY_VENTILATION), (10, Mode.IDLE), (11, Mode.IDLE)):
+            state = snapshot(tout=temp(outdoor), power=Power.BATTERY, ac_available=False,
+                             ac_mode=Sample(None, "ac", 0, Quality.UNAVAILABLE), ac_unpowered=True)
+            self.assertEqual(choose(state, self.config(), max_age=60, cooling_required=True).desired, mode)
+        for proof, power, expected in ((True, Power.BATTERY, Action.FAN_ON),
+                                       (False, Power.BATTERY, None), (True, Power.MAINS, None)):
+            state = snapshot(tout=temp(5), power=power, ac_available=False,
+                             ac_mode=Sample(None, "ac", 0, Quality.UNAVAILABLE), ac_unpowered=proof)
+            planner = TransitionPlanner(self.config(), max_age=60, timeout=30, ac_target=22, manual_fan=True)
+            result = planner.advance(state, Mode.EMERGENCY_VENTILATION, automatic=True, ready=True, timing_allowed=True)
+            self.assertEqual(result.action, expected)
+
+    def test_manual_output_off_requires_binding_off(self):
+        planner = TransitionPlanner(self.config(), max_age=60, timeout=30, ac_target=22, manual_fan=True)
+        args = dict(automatic=True, ready=True, timing_allowed=True)
+        state = snapshot(vent_enabled=Sample(True, "cdr", 0), vent_output=Sample(True, "fan", 0))
+        self.assertEqual(planner.advance(state, Mode.AIR_CONDITIONING, **args).action, Action.VENT_DISABLE)
+        self.assertIsNone(planner.advance(state, Mode.AIR_CONDITIONING, **args).action)
+        state = snapshot(1, vent_output=Sample(True, "fan", 1))
+        self.assertEqual(planner.advance(state, Mode.AIR_CONDITIONING, **args).action, Action.FAN_OFF)
+        self.assertIsNone(planner.advance(state, Mode.AIR_CONDITIONING, **args).action)
+        self.assertEqual(planner.advance(snapshot(2), Mode.AIR_CONDITIONING, **args).action, Action.AC_COOL)

@@ -16,7 +16,7 @@ class SrccEntity(Entity):
             "identifiers": {(DOMAIN, runtime.entry.entry_id)},
             "name": NAME,
             "manufacturer": "4VRS",
-            "model": "Observation controller",
+            "model": "Climate controller",
             "sw_version": VERSION,
         }
 
