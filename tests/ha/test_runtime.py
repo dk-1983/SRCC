@@ -157,3 +157,19 @@ class HaRuntimeTests(unittest.IsolatedAsyncioTestCase):
         for _ in range(10):
             self.runtime.refresh()
             self.assertEqual(self.runtime.snapshot.tin.measured_at, first)
+
+    async def test_switch_output_readback_never_sends_commands(self):
+        data = settings(vent_enable="number.cdr", vent_output="switch.fan")
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "on")
+        validate_with_hass(self.hass, schema()(data))
+        self.runtime = Runtime(self.hass, SimpleNamespace(entry_id="test"), data)
+        with patch.object(type(self.hass.services), "async_call", AsyncMock()) as calls:
+            self.runtime.start()
+            self.assertIs(self.runtime.snapshot.vent_enabled.value, False)
+            self.assertIs(self.runtime.snapshot.vent_output.value, True)
+            for value, expected in (("off", False), ("unavailable", None), ("on", True)):
+                self.hass.states.async_set("switch.fan", value)
+                await self.hass.async_block_till_done()
+                self.assertIs(self.runtime.snapshot.vent_output.value, expected)
+            calls.assert_not_called()

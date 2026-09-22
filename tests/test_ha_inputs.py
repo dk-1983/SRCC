@@ -69,3 +69,7 @@ class ConfigurationTests(unittest.TestCase):
     def test_domain_validation(self):
         with self.assertRaises(ConfigurationError):
             validate(settings(trm_temperature="switch.fan"))
+
+    def test_fan_output_accepts_readback_switch(self):
+        for entity_id in ("switch.fan", "binary_sensor.fan"):
+            self.assertEqual(validate(settings(vent_output=entity_id))["vent_output"], entity_id)

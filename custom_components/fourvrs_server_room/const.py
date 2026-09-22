@@ -8,7 +8,7 @@ ENTITY_ROLES = {
     "bolid_temperature_1": ["sensor"],
     "bolid_temperature_2": ["sensor"],
     "vent_enable": ["number", "sensor", "switch", "binary_sensor"],
-    "vent_output": ["binary_sensor"],
+    "vent_output": ["binary_sensor", "switch"],
     "climate": ["climate"],
     "ac_fault": ["binary_sensor"],
     "ups_online": ["binary_sensor"],
