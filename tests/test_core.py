@@ -1,0 +1,292 @@
+"""Safety and state-machine scenarios with controlled timestamps."""
+import unittest
+from dataclasses import replace
+
+from custom_components.fourvrs_server_room.core.models import (
+    Config, Mode, Power, Quality, Sample, Snapshot, Severity,
+)
+from custom_components.fourvrs_server_room.core.inputs import Fallback, select_temperature
+from custom_components.fourvrs_server_room.core.health import VentilationTrend
+from custom_components.fourvrs_server_room.core.severity import TemperatureAlarm
+from custom_components.fourvrs_server_room.core.policy import choose
+from custom_components.fourvrs_server_room.core.transitions import Action, TransitionPlanner
+
+
+def temp(value, at=0, source="trm", quality=Quality.VALID):
+    return Sample(value, source, at, quality)
+
+
+def snapshot(now=0, **changes):
+    result = Snapshot(now, temp(25.0, now), temp(2.0, now, "outdoor"),
+                      Power.MAINS, True, True,
+                      Sample(False, "cdr", now), Sample(False, "fan", now),
+                      Sample("off", "ac", now), temp(22.0, now, "target"),
+                      ac_fault=False, current=Mode.VENTILATION)
+    return replace(result, **changes)
+
+
+class InputTests(unittest.TestCase):
+    def test_primary_wins_over_hot_backup(self):
+        result = select_temperature(temp(25), (temp(29, source="b1"), temp(29, source="b2")),
+                                    now=0, max_age=60, fallback=Fallback.MEAN_REQUIRE_BOTH,
+                                    max_skew=5)
+        self.assertEqual(result.sample.value, 25)
+        self.assertFalse(result.degraded)
+
+    def test_both_required_and_average(self):
+        bad = temp(None, quality=Quality.UNAVAILABLE)
+        backups = (temp(27, source="b1"), temp(29, source="b2"))
+        result = select_temperature(bad, backups, now=0, max_age=60,
+                                    fallback=Fallback.MEAN_REQUIRE_BOTH, max_skew=5)
+        self.assertEqual(result.sample.value, 28)
+        self.assertTrue(result.degraded)
+        for index in (0, 1):
+            values = list(backups)
+            values[index] = replace(values[index], quality=Quality.STALE)
+            self.assertIsNone(select_temperature(bad, tuple(values), now=0, max_age=60,
+                              fallback=Fallback.MEAN_REQUIRE_BOTH, max_skew=5).sample)
+
+    def test_mean_keeps_oldest_timestamp_and_stable_source(self):
+        backups = (temp(27, 10, "b1"), temp(29, 15, "b2"))
+        kwargs = dict(now=15, max_age=60, fallback=Fallback.MEAN_REQUIRE_BOTH, max_skew=5)
+        result = select_temperature(temp(None), backups, **kwargs)
+        reverse = select_temperature(temp(None), tuple(reversed(backups)), **kwargs)
+        self.assertEqual(result.sample.measured_at, 10)
+        self.assertEqual(result.sample, reverse.sample)
+        self.assertIsNone(select_temperature(temp(None), backups, **(kwargs | {"max_skew": 4})).sample)
+
+    def test_invalid_values_and_future_samples(self):
+        for value in (float("nan"), float("inf"), True, "24", None):
+            self.assertIsNone(temp(value).temperature(0, 60))
+        self.assertIsNone(temp(25, 1).temperature(0, 60))
+        self.assertIsNone(temp(25).temperature(61, 60))
+        self.assertIsNone(temp(25, quality=Quality.UNVERIFIED).temperature(0, 60))
+
+    def test_duplicate_backup_entities_rejected(self):
+        result = select_temperature(temp(None), (temp(27, source="b"), temp(28, source="b")),
+                                    now=0, max_age=60, fallback=Fallback.MEAN_REQUIRE_BOTH,
+                                    max_skew=5)
+        self.assertIsNone(result.sample)
+
+
+class AlarmTests(unittest.TestCase):
+    def alarm(self):
+        return TemperatureAlarm(Config(), max_age=60, max_gap=60)
+
+    def test_critical_at_equality_and_warning(self):
+        alarm = self.alarm()
+        self.assertEqual(alarm.update(temp(26), now=0).severity, Severity.WARNING)
+        self.assertEqual(alarm.update(temp(28), now=0).severity, Severity.CRITICAL)
+
+    def test_two_minutes_of_falling_temperature(self):
+        alarm = self.alarm()
+        alarm.update(temp(28), now=0)
+        for now, value in ((60, 27), (120, 26.9)):
+            self.assertTrue(alarm.update(temp(value, now), now=now).thermal_critical)
+        result = alarm.update(temp(26.8, 180), now=180)
+        self.assertFalse(result.thermal_critical)
+        self.assertEqual(result.severity, Severity.WARNING)
+
+    def test_flat_or_rising_does_not_clear(self):
+        for values in ((26.5, 26.5, 26.5), (26.5, 26.6, 26.7)):
+            alarm = self.alarm()
+            alarm.update(temp(28), now=0)
+            for now, value in zip((60, 120, 180), values):
+                result = alarm.update(temp(value, now), now=now)
+            self.assertTrue(result.thermal_critical)
+
+    def test_missing_data_resets_recovery_not_latch(self):
+        alarm = self.alarm()
+        alarm.update(temp(28), now=0)
+        alarm.update(temp(27, 60), now=60)
+        self.assertTrue(alarm.update(temp(None, 120), now=120).thermal_critical)
+        self.assertTrue(alarm.update(temp(26.5, 180), now=180).thermal_critical)
+
+    def test_source_change_restarts_recovery(self):
+        alarm = self.alarm()
+        alarm.update(temp(28), now=0)
+        alarm.update(temp(27, 60), now=60)
+        alarm.update(temp(26.9, 120), now=120)
+        result = alarm.update(temp(26.8, 180, "bolid_mean"), now=180)
+        self.assertTrue(result.thermal_critical)
+        self.assertEqual(result.recovery_elapsed, 0)
+
+    def test_hot_fallback_critical_without_trend(self):
+        self.assertTrue(self.alarm().update(temp(28, 0, "bolid_mean"), now=0).thermal_critical)
+
+    def test_other_critical_survives_temperature_recovery(self):
+        alarm = self.alarm()
+        alarm.update(temp(28), now=0)
+        for now, value in ((60, 27), (120, 26.9), (180, 26.8)):
+            result = alarm.update(temp(value, now), now=now, other_critical=True)
+        self.assertFalse(result.thermal_critical)
+        self.assertEqual(result.severity, Severity.CRITICAL)
+
+    def test_old_repeated_reading_cannot_clear(self):
+        alarm = self.alarm()
+        alarm.update(temp(28), now=0)
+        for now in (60, 120, 180):
+            result = alarm.update(temp(26, 60), now=now)
+        self.assertTrue(result.thermal_critical)
+
+
+class TrendTests(unittest.TestCase):
+    def trend(self, **config):
+        return VentilationTrend(Config(**config), max_age=60, tolerance=0)
+
+    def test_first_result_at_five_minutes(self):
+        trend = self.trend(minimum_vent_rise=0.5)
+        trend.update(temp(24), now=0, active=True)
+        for now in (60, 120, 180, 240):
+            self.assertFalse(trend.update(temp(24 + now / 300, now), now=now, active=True).ready)
+        result = trend.update(temp(25, 300), now=300, active=True)
+        self.assertTrue(result.ready)
+        self.assertEqual(result.samples, 5)
+        self.assertAlmostEqual(result.rate_per_minute, 0.2)
+        self.assertTrue(result.ineffective)
+
+    def test_unset_rise_threshold_is_not_failure(self):
+        trend = self.trend()
+        for now in (0, 60, 120, 180, 240, 300):
+            result = trend.update(temp(24 + now / 300, now), now=now, active=True)
+        self.assertTrue(result.ready)
+        self.assertIsNone(result.ineffective)
+
+    def test_off_or_duplicate_resets_window(self):
+        trend = self.trend()
+        trend.update(temp(24), now=0, active=True)
+        result = trend.update(temp(24), now=60, active=True)
+        self.assertEqual(result.reason, "MISSED_OR_DUPLICATE_SAMPLE")
+        trend.update(temp(24, 120), now=120, active=True)
+        self.assertFalse(trend.update(temp(24, 180), now=180, active=False).ready)
+        self.assertIsNone(trend.started)
+
+    def test_unchanged_new_measurements_are_valid(self):
+        trend = self.trend(minimum_vent_rise=0.5)
+        for now in range(0, 301, 60):
+            result = trend.update(temp(24, now), now=now, active=True)
+        self.assertTrue(result.ready)
+        self.assertFalse(result.ineffective)
+
+
+class PolicyTests(unittest.TestCase):
+    def test_hysteresis_boundaries(self):
+        for current, outside, desired in (
+            (Mode.VENTILATION, 0.5, Mode.VENTILATION),
+            (Mode.VENTILATION, 1, Mode.AIR_CONDITIONING),
+            (Mode.AIR_CONDITIONING, -0.5, Mode.AIR_CONDITIONING),
+            (Mode.AIR_CONDITIONING, -1, Mode.VENTILATION),
+        ):
+            with self.subTest(current=current, outside=outside):
+                result = choose(snapshot(tout=temp(outside), current=current), Config(), max_age=60)
+                self.assertEqual(result.desired, desired)
+
+    def test_failed_vent_reserve_and_hard_minimum(self):
+        for outside, desired in ((-2, Mode.AIR_CONDITIONING),
+                                 (-5, Mode.NO_COOLING_AVAILABLE),
+                                 (-40, Mode.NO_COOLING_AVAILABLE)):
+            result = choose(snapshot(tout=temp(outside), vent_ineffective=True), Config(), max_age=60)
+            self.assertEqual(result.desired, desired)
+
+    def test_hot_outdoor_no_emergency_vent(self):
+        result = choose(snapshot(tin=temp(29), tout=temp(31), ac_available=False),
+                        Config(emergency_delta=5), max_age=60)
+        self.assertEqual(result.desired, Mode.NO_COOLING_AVAILABLE)
+
+    def test_battery_or_unknown_does_not_assume_mains(self):
+        for power in (Power.BATTERY, Power.UNKNOWN, Power.CONFLICT):
+            result = choose(snapshot(power=power), Config(), max_age=60)
+            self.assertIsNone(result.desired)
+            self.assertEqual(result.reason, "POWER_POLICY_REQUIRED")
+
+    def test_critical_marks_immediate_evaluation(self):
+        result = choose(snapshot(tin=temp(28)), Config(), max_age=60)
+        self.assertTrue(result.urgent)
+
+
+class TransitionTests(unittest.TestCase):
+    def planner(self):
+        return TransitionPlanner(Config(), max_age=60, timeout=30, ac_target=22)
+
+    def advance(self, planner, state, target=Mode.AIR_CONDITIONING, **kwargs):
+        args = dict(automatic=True, ready=True, timing_allowed=True) | kwargs
+        return planner.advance(state, target, **args)
+
+    def test_vent_to_ac_readback_order(self):
+        planner = self.planner()
+        state = snapshot(vent_enabled=Sample(True, "cdr", 0), vent_output=Sample(True, "fan", 0))
+        self.assertEqual(self.advance(planner, state).action, Action.VENT_DISABLE)
+        self.assertEqual(self.advance(planner, state).phase, "WAIT_READBACK")
+        state = snapshot(1, vent_output=Sample(True, "fan", 1))
+        self.assertEqual(self.advance(planner, state).phase, "WAIT_VENT_OUTPUT_OFF")
+        self.assertEqual(self.advance(planner, snapshot(2)).action, Action.AC_COOL)
+        self.assertFalse(self.advance(planner, snapshot(3)).complete)
+        self.assertTrue(self.advance(planner, snapshot(4, ac_mode=Sample("cool", "ac", 4))).complete)
+
+    def test_ac_off_before_vent_enable(self):
+        planner = self.planner()
+        state = snapshot(tout=temp(-2), ac_mode=Sample("cool", "ac", 0))
+        self.assertEqual(self.advance(planner, state, Mode.VENTILATION).action, Action.AC_OFF)
+        self.assertEqual(self.advance(planner, state, Mode.VENTILATION).phase, "WAIT_READBACK")
+        state = snapshot(1, tout=temp(-2, 1))
+        self.assertEqual(self.advance(planner, state, Mode.VENTILATION).action, Action.VENT_ENABLE)
+
+    def test_unavailable_ac_is_not_off(self):
+        state = snapshot(ac_available=False, ac_mode=Sample(None, "ac", 0, Quality.UNAVAILABLE))
+        result = self.advance(self.planner(), state, Mode.VENTILATION)
+        self.assertIsNone(result.action)
+        self.assertEqual(result.reason, "AC_OFF_UNPROVEN")
+
+    def test_manual_stops_pending_and_requires_reconciliation(self):
+        planner = self.planner()
+        self.advance(planner, snapshot())
+        self.assertEqual(self.advance(planner, snapshot(1), automatic=False).phase, "PAUSED_MANUAL")
+        self.assertEqual(self.advance(planner, snapshot(2)).phase, "BLOCKED")
+
+    def test_timeout_no_retry(self):
+        planner = self.planner()
+        self.advance(planner, snapshot())
+        result = self.advance(planner, snapshot(30))
+        self.assertEqual(result.reason, "READBACK_TIMEOUT")
+        self.assertIsNone(self.advance(planner, snapshot(31)).action)
+
+    def test_guard_rechecked_after_vent_disabled(self):
+        planner = self.planner()
+        self.advance(planner, snapshot(vent_enabled=Sample(True, "cdr", 0)))
+        result = self.advance(planner, snapshot(1, tout=temp(-5, 1)))
+        self.assertEqual(result.reason, "AC_HARD_MIN_BLOCK")
+        self.assertIsNone(result.action)
+
+    def test_unknown_or_optimistic_vent_is_not_off(self):
+        for quality in (Quality.UNKNOWN, Quality.UNVERIFIED, Quality.STALE):
+            planner = self.planner()
+            result = self.advance(planner, snapshot(vent_enabled=Sample(False, "cdr", 0, quality)))
+            self.assertNotEqual(result.action, Action.AC_COOL)
+
+    def test_all_heat_and_auto_modes_require_off(self):
+        for mode in ("heat", "auto", "heat_cool", "idle"):
+            state = snapshot(ac_mode=Sample(mode, "ac", 0))
+            self.assertEqual(self.advance(self.planner(), state, Mode.VENTILATION).action, Action.AC_OFF)
+
+    def test_service_error_latches_block(self):
+        planner = self.planner()
+        self.advance(planner, snapshot())
+        planner.fail("SERVICE_ERROR")
+        self.assertEqual(self.advance(planner, snapshot(1)).reason, "SERVICE_ERROR")
+
+    def test_no_start_before_ready_or_timing(self):
+        self.assertIsNone(self.advance(self.planner(), snapshot(), ready=False).action)
+        self.assertIsNone(self.advance(self.planner(), snapshot(), timing_allowed=False).action)
+
+
+class ConfigTests(unittest.TestCase):
+    def test_invalid_configuration_rejected(self):
+        for changes in ({"critical_recovery": 28}, {"ac_hard_min": 0},
+                        {"warning_on": 29}, {"minimum_vent_rise": 0},
+                        {"critical_on": float("nan")}, {"sample_interval": 0}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                Config(**changes)
+
+
+if __name__ == "__main__":
+    unittest.main()
