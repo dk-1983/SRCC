@@ -65,7 +65,8 @@ class Executor:
         data = self.runtime.data
         return TransitionPlanner(core_config(data), max_age=data["max_age"],
                                  timeout=data["command_timeout"], ac_target=data["ac_target"],
-                                 manual_fan=True, combined_cool_target=True)
+                                 manual_fan=True, combined_cool_target=True,
+                                 ac_readback_timeout=data.get("ac_readback_timeout", 180.0))
 
     async def _run(self):
         generation = self.generation
@@ -90,6 +91,24 @@ class Executor:
                         self.last_off = now
                     self.last_ac_mode = ac_mode
                 target = status.decision.desired
+                # A policy/power change must not erase an unresolved command.
+                if (self.planner and self.planner.pending is not None
+                        and (target != self.target or state.power != self.last_power)):
+                    pending = self.planner.pending
+                    elapsed = now - self.planner.sent_at
+                    if self.planner._confirmed(state, pending, self.planner.sent_at):
+                        self.runtime.telemetry.record("command_confirmed", action=pending.value,
+                                                      elapsed_s=round(elapsed, 3))
+                        if self.last_command:
+                            self.last_command = dict(self.last_command, status="confirmed")
+                        self.planner.pending = None
+                    elif elapsed >= self.planner.pending_timeout:
+                        raise HomeAssistantError("READBACK_TIMEOUT")
+                    else:
+                        self.step = Step("WAIT_READBACK", reason=pending.value)
+                        self.wait_details = {"readback_remaining_s": round(
+                            self.planner.pending_timeout - elapsed, 1)}
+                        return
                 if state.power != self.last_power:
                     self.planner, self.target = None, None
                     self.last_power = state.power
@@ -97,7 +116,7 @@ class Executor:
                     # Don't drop an outstanding readback silently: it must
                     # still time out if telemetry or policy disappears.
                     if self.planner and self.planner.pending is not None:
-                        if now - self.planner.sent_at >= self.runtime.data["command_timeout"]:
+                        if now - self.planner.sent_at >= self.planner.pending_timeout:
                             raise HomeAssistantError("READBACK_TIMEOUT")
                     self.step = Step("BLOCKED", reason=status.decision.reason)
                     return
@@ -127,7 +146,7 @@ class Executor:
                     self.wait_details = {"condition_remaining_s": round(timing.condition_remaining, 1),
                                          "dwell_remaining_s": round(timing.dwell_remaining, 1)}
                 if self.step.phase == "WAIT_READBACK":
-                    self.wait_details = {"readback_remaining_s": round(max(0, self.runtime.data["command_timeout"]
+                    self.wait_details = {"readback_remaining_s": round(max(0, self.planner.pending_timeout
                                                               - (now - self.planner.sent_at)), 1)}
                 if self.step.phase == "BLOCKED" and self.planner.error:
                     raise HomeAssistantError(self.planner.error)

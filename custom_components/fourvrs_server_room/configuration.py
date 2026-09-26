@@ -59,7 +59,7 @@ def validate(data: dict) -> dict:
         value = result[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
             raise ConfigurationError("invalid_execution")
-        if key != "ac_target" and (value < 0 or (key == "command_timeout" and value == 0)):
+        if key != "ac_target" and (value < 0 or (key in ("command_timeout", "ac_readback_timeout") and value == 0)):
             raise ConfigurationError("invalid_execution")
     if result.get("control_profile_enabled", False):
         if not all(result.get(key) for key in ("climate", "vent_enable", "vent_output",

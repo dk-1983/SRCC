@@ -1,7 +1,7 @@
 """HA adapter constants; operational defaults live in the core Config."""
 DOMAIN = "fourvrs_server_room"
 NAME = "Server Room Climate Controller"
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 ENTITY_ROLES = {
     "trm_temperature": ["sensor"],
     "outdoor_temperature": ["sensor"],
@@ -22,7 +22,7 @@ CONFIG_FIELDS = (
 )
 
 OPTIONAL_CORE_FIELDS = ("emergency_on", "emergency_off", "emergency_delta", "minimum_vent_rise", "emergency_outdoor_max")
-EXECUTION_DEFAULTS = {"command_timeout": 30.0, "condition_hold": 30.0,
+EXECUTION_DEFAULTS = {"command_timeout": 30.0, "ac_readback_timeout": 180.0, "condition_hold": 30.0,
                       "minimum_dwell": 300.0, "minimum_ac_off": 180.0}
 EXECUTION_FIELDS = ("ac_target", *EXECUTION_DEFAULTS)
 

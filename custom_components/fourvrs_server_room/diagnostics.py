@@ -1,5 +1,5 @@
 """Minimal diagnostics without source entity IDs or raw external attributes."""
-from .const import CONFIG_FIELDS, ENTITY_ROLES, TIMING_FIELDS, VERSION
+from .const import CONFIG_FIELDS, ENTITY_ROLES, TIMING_FIELDS, VERSION, EXECUTION_DEFAULTS
 
 
 async def async_get_config_entry_diagnostics(hass, entry):
@@ -15,7 +15,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
         "execution_phase": runtime.executor.step.phase,
         "execution_error": bool(runtime.executor.error),
         "bound_roles": [role for role in ENTITY_ROLES if role in runtime.data],
-        "settings": {key: runtime.data.get(key) for key in (*CONFIG_FIELDS, *TIMING_FIELDS, "ac_max_age")},
+        "settings": {key: runtime.data.get(key) for key in (*CONFIG_FIELDS, *TIMING_FIELDS, "ac_max_age", *EXECUTION_DEFAULTS)},
         "reported_mode": runtime.reported_mode,
         "decision": status.decision.reason if status else None,
         "severity": status.alarm.severity.value if status else None,

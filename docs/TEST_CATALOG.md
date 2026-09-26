@@ -173,3 +173,10 @@
 - [test_running_ac_setpoint_drift_corrected_without_seasonal_dwell](../tests/ha/test_execution.py#L403): PASS.
 - [test_setpoint_drift_does_not_override_manual_or_fault](../tests/ha/test_execution.py#L423): PASS.
 - [test_seasonal_change_still_waits_for_condition_hold](../tests/ha/test_execution.py#L435): PASS.
+
+## Дополнительный прогон 0.2.5
+
+63 автономных и 43 HA-теста: **106 PASS**.
+
+- [test_ac_readback_after_160_seconds_is_confirmed_without_retry](../tests/ha/test_execution.py#L468): PASS.
+- [test_ac_timeout_after_180_seconds_latches_without_retry](../tests/ha/test_execution.py#L479): PASS.

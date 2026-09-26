@@ -32,11 +32,15 @@ class Step:
 class TransitionPlanner:
     def __init__(self, config: Config, *, max_age: float,
                  timeout: float, ac_target: float, manual_fan: bool = False,
-                 combined_cool_target: bool = False):
+                 combined_cool_target: bool = False, ac_readback_timeout: float | None = None):
         if not all(isfinite(v) for v in (max_age, timeout, ac_target)):
             raise ValueError("planner settings must be finite")
         if max_age <= 0 or timeout <= 0:
             raise ValueError("max age and timeout must be positive")
+        ac_readback_timeout = timeout if ac_readback_timeout is None else ac_readback_timeout
+        if not isfinite(ac_readback_timeout) or ac_readback_timeout <= 0:
+            raise ValueError("AC readback timeout must be positive")
+        self.ac_readback_timeout = ac_readback_timeout
         self.manual_fan = manual_fan
         self.combined_cool_target = combined_cool_target
         self.config, self.max_age = config, max_age
@@ -47,6 +51,12 @@ class TransitionPlanner:
         self.wait_started: float | None = None
         self.error: str | None = None
         self.last_now: float | None = None
+
+    @property
+    def pending_timeout(self) -> float:
+        if self.pending in (Action.AC_OFF, Action.AC_COOL, Action.AC_SET_TARGET):
+            return self.ac_readback_timeout
+        return self.timeout
 
     def fail(self, reason: str) -> None:
         """An error is latched: fresh reconciliation requires a new planner."""
@@ -96,7 +106,7 @@ class TransitionPlanner:
         if self.pending is not None:
             if self._confirmed(snapshot, self.pending, self.sent_at):
                 self.pending = None
-            elif snapshot.now - self.sent_at >= self.timeout:
+            elif snapshot.now - self.sent_at >= self.pending_timeout:
                 self.fail("READBACK_TIMEOUT")
                 return Step("BLOCKED", reason=self.error)
             else:

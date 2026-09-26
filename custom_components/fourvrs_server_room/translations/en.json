@@ -37,11 +37,12 @@
           "emergency_delta": "Minimum indoor minus outdoor difference for backup fan",
           "emergency_outdoor_max": "Backup fan outdoor limit (blocked at or above)",
           "minimum_vent_rise": "Minimum rise over ventilation observation window (optional)",
-          "command_timeout": "Command / readback timeout",
+          "command_timeout": "Service and ventilation readback timeout",
           "condition_hold": "Cooling choice confirmation duration",
           "minimum_dwell": "Minimum time between normal cooling changes",
           "minimum_ac_off": "Minimum wait before starting stopped AC",
-          "ac_max_age": "Maximum air conditioner publication age"
+          "ac_max_age": "Maximum air conditioner publication age",
+          "ac_readback_timeout": "Air conditioner command readback timeout"
         }
       }
     },
@@ -102,11 +103,12 @@
           "emergency_delta": "Minimum indoor minus outdoor difference for backup fan",
           "emergency_outdoor_max": "Backup fan outdoor limit (blocked at or above)",
           "minimum_vent_rise": "Minimum rise over ventilation observation window (optional)",
-          "command_timeout": "Command / readback timeout",
+          "command_timeout": "Service and ventilation readback timeout",
           "condition_hold": "Cooling choice confirmation duration",
           "minimum_dwell": "Minimum time between normal cooling changes",
           "minimum_ac_off": "Minimum wait before starting stopped AC",
-          "ac_max_age": "Maximum air conditioner publication age"
+          "ac_max_age": "Maximum air conditioner publication age",
+          "ac_readback_timeout": "Air conditioner command readback timeout"
         }
       }
     },

@@ -439,3 +439,49 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         await self.settle()
         self.assertEqual(self.runtime.executor.step.phase, "WAIT_TIMING")
         self.assertEqual(self.calls, [])
+
+    async def delayed_ac_setup(self):
+        self.runtime.data.update(command_timeout=30, ac_readback_timeout=180)
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, temperature=23))
+        self.feedback = False
+        self.runtime.executor.enable()
+        await self.settle()
+        return self.runtime.executor.planner.sent_at
+
+    async def at_elapsed(self, sent, elapsed, *, feedback=False):
+        from datetime import timedelta
+        now = sent + elapsed
+        stamp = self.runtime._wall_anchor + timedelta(seconds=now-self.runtime._clock_anchor-0.001)
+        with patch("custom_components.fourvrs_server_room.runtime.monotonic", return_value=now):
+            # Simulated heartbeat keeps unrelated guards independently fresh.
+            for entity_id in ("sensor.tin", "sensor.tout", "number.cdr", "switch.fan",
+                              "binary_sensor.online", "binary_sensor.battery"):
+                self.hass.states.get(entity_id).last_reported = stamp
+            if feedback:
+                self.hass.states.async_set("climate.ac", "cool", self.hvac)
+                self.hass.states.get("climate.ac").last_reported = stamp
+            self.runtime.refresh()
+            await self.settle()
+
+    async def test_ac_readback_after_160_seconds_is_confirmed_without_retry(self):
+        sent = await self.delayed_ac_setup()
+        await self.at_elapsed(sent, 31)
+        self.assertIsNone(self.runtime.executor.error)
+        self.assertEqual(self.runtime.executor.step.phase, "WAIT_READBACK")
+        self.assertEqual(self.runtime.executor.wait_details["readback_remaining_s"], 149)
+        await self.at_elapsed(sent, 160, feedback=True)
+        self.assertEqual(self.runtime.executor.last_command["status"], "confirmed")
+        self.assertTrue(self.runtime.executor.step.complete)
+        self.assertEqual(len(self.calls), 1)
+
+    async def test_ac_timeout_after_180_seconds_latches_without_retry(self):
+        sent = await self.delayed_ac_setup()
+        await self.at_elapsed(sent, 179)
+        self.assertIsNone(self.runtime.executor.error)
+        await self.at_elapsed(sent, 181)
+        self.assertEqual(self.runtime.executor.error, "READBACK_TIMEOUT")
+        await self.at_elapsed(sent, 190, feedback=True)
+        self.assertEqual(self.runtime.executor.error, "READBACK_TIMEOUT")
+        self.assertEqual(len(self.calls), 1)
