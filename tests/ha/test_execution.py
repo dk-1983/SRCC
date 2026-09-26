@@ -399,3 +399,43 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.refresh()
         self.assertEqual(self.runtime.input_status["climate"]["quality"], "stale")
         self.assertEqual(self.runtime.reported_mode, "unknown")
+
+    async def test_running_ac_setpoint_drift_corrected_without_seasonal_dwell(self):
+        self.runtime.data.update(condition_hold=30, minimum_dwell=300, minimum_ac_off=180)
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.runtime.executor.step.phase, "COMPLETE")
+        self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, temperature=23))
+        await self.settle()
+        self.assertEqual(self.names(), [("climate", "set_temperature")])
+        self.assertEqual(self.calls[0][2]["temperature"], 22)
+        self.assertEqual(self.calls[0][2]["hvac_mode"], "cool")
+        self.assertEqual(self.runtime.executor.last_command["status"], "confirmed")
+        self.runtime.refresh()
+        await self.settle()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.runtime.executor.step.phase, "COMPLETE")
+
+    async def test_setpoint_drift_does_not_override_manual_or_fault(self):
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, temperature=23))
+        await self.settle()
+        self.assertEqual(self.calls, [])
+        self.runtime.data["ac_fault"] = "binary_sensor.ac_fault"
+        self.hass.states.async_set("binary_sensor.ac_fault", "on")
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertNotIn(("climate", "set_temperature"), self.names())
+
+    async def test_seasonal_change_still_waits_for_condition_hold(self):
+        self.runtime.data.update(condition_hold=30, minimum_dwell=300, minimum_ac_off=180)
+        # Existing automatic ventilation with warm outdoor air needs a new mode.
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.runtime.executor.step.phase, "WAIT_TIMING")
+        self.assertEqual(self.calls, [])

@@ -165,3 +165,11 @@
 - [test_ac_limit_preserves_timestamp_and_other_sources](../tests/test_ha_inputs.py#L93): PASS.
 - [test_ac_age_validation_and_migration_default](../tests/test_ha_inputs.py#L102): PASS.
 - [test_ac_publication_limit_separate_from_other_roles](../tests/ha/test_execution.py#L383): PASS.
+
+## Дополнительный прогон 0.2.4
+
+63 автономных и 41 HA-тест: **104 PASS**. Регрессия до исправления воспроизводила WAIT_TIMING вместо COMPLETE при действующем COOL; после исправления проверяет единственную подтверждённую команду 23→22 без повторов.
+
+- [test_running_ac_setpoint_drift_corrected_without_seasonal_dwell](../tests/ha/test_execution.py#L403): PASS.
+- [test_setpoint_drift_does_not_override_manual_or_fault](../tests/ha/test_execution.py#L423): PASS.
+- [test_seasonal_change_still_waits_for_condition_hold](../tests/ha/test_execution.py#L435): PASS.

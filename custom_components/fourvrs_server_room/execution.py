@@ -109,7 +109,11 @@ class Executor:
                 # Returning mains may auto-start AC. Do not dwell while
                 # reconciling unknown/conflicting equipment, or on battery.
                 reconcile = self.runtime.reported_mode in ("unknown", "conflict") or state.power is Power.BATTERY
-                allowed = timing.allowed or reconcile
+                # Maintaining a confirmed AC mode is not a seasonal change.
+                # Recheck every launch/readback guard, but do not delay a
+                # setpoint correction or report WAIT_TIMING for an achieved goal.
+                maintaining_ac = target is Mode.AIR_CONDITIONING and state.current is Mode.AIR_CONDITIONING
+                allowed = timing.allowed or reconcile or maintaining_ac
                 previous_pending = self.planner.pending
                 pending_since = self.planner.sent_at
                 self.step = self.planner.advance(state, target, automatic=True,
