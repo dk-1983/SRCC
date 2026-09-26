@@ -180,3 +180,10 @@
 
 - [test_ac_readback_after_160_seconds_is_confirmed_without_retry](../tests/ha/test_execution.py#L468): PASS.
 - [test_ac_timeout_after_180_seconds_latches_without_retry](../tests/ha/test_execution.py#L479): PASS.
+
+## Дополнительный прогон 0.2.6
+
+63 автономных и 45 HA-тестов: **108 PASS**. Проверяются точные payload, последовательное подтверждение режима и температуры, запрет второго шага без первого readback, тайм-аут 3 s.
+
+- [test_auto_mode_then_target_are_separate_confirmed_commands](../tests/ha/test_execution.py#L489): PASS.
+- [test_missing_mode_confirmation_never_sends_temperature](../tests/ha/test_execution.py#L500): PASS.

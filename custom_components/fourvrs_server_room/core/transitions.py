@@ -32,7 +32,7 @@ class Step:
 class TransitionPlanner:
     def __init__(self, config: Config, *, max_age: float,
                  timeout: float, ac_target: float, manual_fan: bool = False,
-                 combined_cool_target: bool = False, ac_readback_timeout: float | None = None):
+                 live_target_updates: bool = False, ac_readback_timeout: float | None = None):
         if not all(isfinite(v) for v in (max_age, timeout, ac_target)):
             raise ValueError("planner settings must be finite")
         if max_age <= 0 or timeout <= 0:
@@ -42,7 +42,7 @@ class TransitionPlanner:
             raise ValueError("AC readback timeout must be positive")
         self.ac_readback_timeout = ac_readback_timeout
         self.manual_fan = manual_fan
-        self.combined_cool_target = combined_cool_target
+        self.live_target_updates = live_target_updates
         self.config, self.max_age = config, max_age
         self.timeout, self.ac_target = timeout, ac_target
         self.target: Mode | None = None
@@ -187,10 +187,12 @@ class TransitionPlanner:
         if (tout < 0 and not snapshot.vent_ineffective and snapshot.vent_available
                 and not snapshot.proved(snapshot.ac_mode, "cool", self.max_age)):
             return Step("BLOCKED", reason="NEGATIVE_TEMPERATURE_RESERVE_ONLY")
+        if self.live_target_updates and not snapshot.proved(snapshot.ac_mode, "cool", self.max_age):
+            return self._issue(snapshot, Action.AC_COOL)
         actual = snapshot.ac_target.temperature(snapshot.now, self.max_age)
         if actual is None or abs(actual - self.ac_target) >= 0.01:
-            # Combined mode/target dispatch is allowed only after all launch guards.
-            if not ac_off and not self.combined_cool_target:
+            # A live target update is allowed only after all launch guards.
+            if not ac_off and not self.live_target_updates:
                 return Step("BLOCKED", reason="TARGET_UPDATE_PROFILE_REQUIRED")
             return self._issue(snapshot, Action.AC_SET_TARGET)
         if not snapshot.proved(snapshot.ac_mode, "cool", self.max_age):

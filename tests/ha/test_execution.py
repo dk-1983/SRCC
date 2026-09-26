@@ -67,9 +67,9 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         elif call.domain == "switch":
             self.hass.states.async_set(entity_id, "on" if call.service == "turn_on" else "off")
         else:
-            attributes = dict(self.hvac)
+            attributes = dict(self.hass.states.get(entity_id).attributes)
             attributes["temperature"] = call.data.get("temperature", attributes["temperature"])
-            self.hass.states.async_set(entity_id, call.data["hvac_mode"], attributes)
+            self.hass.states.async_set(entity_id, call.data.get("hvac_mode", self.hass.states.get(entity_id).state), attributes)
 
     async def settle(self):
         await self.hass.async_block_till_done()
@@ -84,9 +84,9 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.executor.enable()
         await self.settle()
         self.assertEqual(self.names(), [("number", "set_value"), ("switch", "turn_off"),
-                                       ("climate", "set_temperature")])
+                                       ("climate", "set_hvac_mode")])
         self.assertEqual(self.calls[-1][2]["hvac_mode"], "cool")
-        self.assertEqual(self.calls[-1][2]["temperature"], 22)
+        self.assertNotIn("temperature", self.calls[-1][2])
         self.assertTrue(self.runtime.executor.step.complete)
 
     async def test_cool_to_automatic_vent_stops_ac_first(self):
@@ -290,7 +290,7 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.executor.enable()
         await self.settle()
         self.assertEqual(self.names(), [("switch", "turn_off"), ("switch", "turn_off"),
-                                       ("climate", "set_temperature")])
+                                       ("climate", "set_hvac_mode")])
         self.assertEqual(self.calls[0][2]["entity_id"], "switch.cdr")
         self.assertEqual(self.calls[1][2]["entity_id"], "switch.fan")
 
@@ -413,7 +413,7 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         await self.settle()
         self.assertEqual(self.names(), [("climate", "set_temperature")])
         self.assertEqual(self.calls[0][2]["temperature"], 22)
-        self.assertEqual(self.calls[0][2]["hvac_mode"], "cool")
+        self.assertNotIn("hvac_mode", self.calls[0][2])
         self.assertEqual(self.runtime.executor.last_command["status"], "confirmed")
         self.runtime.refresh()
         await self.settle()
@@ -483,5 +483,31 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         await self.at_elapsed(sent, 181)
         self.assertEqual(self.runtime.executor.error, "READBACK_TIMEOUT")
         await self.at_elapsed(sent, 190, feedback=True)
+        self.assertEqual(self.runtime.executor.error, "READBACK_TIMEOUT")
+        self.assertEqual(len(self.calls), 1)
+
+    async def test_auto_mode_then_target_are_separate_confirmed_commands(self):
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "auto", dict(self.hvac, temperature=23))
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.names(), [("climate", "set_hvac_mode"), ("climate", "set_temperature")])
+        self.assertEqual(self.calls[0][2], {"entity_id": "climate.ac", "hvac_mode": "cool"})
+        self.assertEqual(self.calls[1][2], {"entity_id": "climate.ac", "temperature": 22})
+        self.assertTrue(self.runtime.executor.step.complete)
+
+    async def test_missing_mode_confirmation_never_sends_temperature(self):
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "auto", dict(self.hvac, temperature=23))
+        self.feedback = False
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.names(), [("climate", "set_hvac_mode")])
+        sent = self.runtime.executor.planner.sent_at
+        await self.at_elapsed(sent, 2)
+        self.assertIsNone(self.runtime.executor.error)
+        await self.at_elapsed(sent, 3.1)
         self.assertEqual(self.runtime.executor.error, "READBACK_TIMEOUT")
         self.assertEqual(len(self.calls), 1)

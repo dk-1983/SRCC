@@ -65,8 +65,8 @@ class Executor:
         data = self.runtime.data
         return TransitionPlanner(core_config(data), max_age=data["max_age"],
                                  timeout=data["command_timeout"], ac_target=data["ac_target"],
-                                 manual_fan=True, combined_cool_target=True,
-                                 ac_readback_timeout=data.get("ac_readback_timeout", 180.0))
+                                 manual_fan=True, live_target_updates=True,
+                                 ac_readback_timeout=data.get("ac_readback_timeout", 3.0))
 
     async def _run(self):
         generation = self.generation
@@ -200,8 +200,8 @@ class Executor:
             if action is Action.AC_OFF:
                 service, payload = "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "off"}
             else:
-                # Set COOL and target together, only after fan OFF and all
-                # launch guards. Avoid an ambiguous setpoint-only command.
+                # Separate mode and temperature commands; each has its own
+                # readback. Some upstream drivers do not apply both at once.
                 target = data["ac_target"]
                 if rt.hass.config.units.temperature_unit == "°F":
                     target = target * 9 / 5 + 32
@@ -210,8 +210,12 @@ class Executor:
                     raise HomeAssistantError("AC_COOL_UNSUPPORTED")
                 if not state.attributes.get("min_temp", float("-inf")) <= target <= state.attributes.get("max_temp", float("inf")):
                     raise HomeAssistantError("AC_TARGET_OUT_OF_RANGE")
-                service = "set_temperature"
-                payload = {"entity_id": entity_id, "temperature": target, "hvac_mode": "cool"}
+                if action is Action.AC_COOL:
+                    service = "set_hvac_mode"
+                    payload = {"entity_id": entity_id, "hvac_mode": "cool"}
+                else:
+                    service = "set_temperature"
+                    payload = {"entity_id": entity_id, "temperature": target}
         if not rt.hass.services.has_service(domain, service):
             raise HomeAssistantError("SERVICE_UNAVAILABLE:" + domain + "." + service)
         role = "vent_enable" if action in (Action.VENT_DISABLE, Action.VENT_ENABLE) else (
