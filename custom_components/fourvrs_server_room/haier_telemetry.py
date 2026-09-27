@@ -134,7 +134,7 @@ class HaierTelemetry:
 
     def quality(self, now):
         if self.invalid_reason or self.frame is None:
-            return Quality.UNVERIFIED if self.frame is None else Quality.INVALID
+            return Quality.UNVERIFIED if self.invalid_reason == "WAIT_LIVE_TELEMETRY" else Quality.INVALID
         if now < self.received_at or now < self.measured_at:
             return Quality.INVALID
         if now - self.received_at >= self.HEARTBEAT_LIMIT:

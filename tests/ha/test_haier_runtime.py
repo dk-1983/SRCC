@@ -19,6 +19,8 @@ def packet(**changes):
                 current_temperature=24, fault_valid=True, fault=False, fault_code=0,
                 request_id="mqtt-1", command_state="confirmed")
     data.update(changes)
+    # Match MQTT_ATTRIBUTES_BLOCKED in HA: entity attributes omit available.
+    data.pop("available", None)
     return data
 
 
@@ -212,3 +214,33 @@ class HaierRuntimeTests(unittest.IsolatedAsyncioTestCase):
         await self.publish(2, status_frames=12, sample_uptime_ms=12000, published_uptime_ms=12000)
         self.assertEqual(self.names(), [("climate", "set_temperature")])
         self.assertIsNone(self.runtime.executor.error)
+
+    async def test_deployed_telemetry_without_reserved_available_is_usable(self):
+        await self.publish(status_frames=1736, sample_uptime_ms=2488752,
+                           published_uptime_ms=2488855, age_ms=103,
+                           target_temperature=22, command_state="not_started", request_id="")
+        self.assertTrue(self.runtime.snapshot.ac_available)
+        self.assertFalse(self.runtime.snapshot.ac_fault)
+        self.assertEqual(self.runtime.reported_mode, "air_conditioning")
+        self.assertEqual(self.runtime.status.decision.reason, "HOLD_AC")
+        self.assertAlmostEqual(self.runtime.haier.diagnostics(self.now)["source_age_lower_bound_s"], .103)
+        self.runtime.executor.enable(); await self.settle()
+        self.assertEqual(self.calls, [])
+
+    async def test_missing_available_never_defaults_to_true_for_untrusted_fault(self):
+        for value in (False, None, "true", 1):
+            attributes = packet(fault_valid=value, fault=None, fault_code=None)
+            self.hass.states.async_set("sensor.haier_data", "10", attributes, force_update=True)
+            await self.settle()
+            self.assertFalse(self.runtime.snapshot.ac_available)
+            self.assertFalse(self.runtime.snapshot.ac_fault_allows_operation)
+        self.assertEqual(self.runtime.input_status["ac_telemetry"]["quality"], "invalid")
+        self.assertEqual(self.runtime.input_status["ac_telemetry"]["telemetry_reason"], "INVALID_FLAGS")
+
+    async def test_explicit_available_false_is_not_overridden(self):
+        attributes = packet()
+        attributes["available"] = False
+        self.hass.states.async_set("sensor.haier_data", "10", attributes, force_update=True)
+        await self.settle()
+        self.assertFalse(self.runtime.snapshot.ac_available)
+        self.assertEqual(self.runtime.haier.invalid_reason, "INVALID_FAULT")

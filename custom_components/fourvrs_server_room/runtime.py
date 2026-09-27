@@ -128,7 +128,14 @@ class Runtime:
             if state is None or state.state in ("unknown", "unavailable") or state.attributes.get("restored"):
                 self.haier.invalidate("TELEMETRY_ENTITY_UNAVAILABLE")
             else:
-                self.haier.receive(dict(state.attributes), monotonic())
+                attributes = dict(state.attributes)
+                # MQTT strips reserved `available` from HA JSON attributes.
+                # Schema 1 fault_valid=True implies a fresh UART status AND
+                # valid protocol connection. Never infer availability merely
+                # from the entity's numeric state or a false fault value.
+                if "available" not in attributes:
+                    attributes["available"] = attributes.get("fault_valid") is True
+                self.haier.receive(attributes, monotonic())
         # Loss of a backup is handled immediately. A failed backup that recovers
         # is sampled with its pair at the next scheduled minute.
         self.refresh()
@@ -256,7 +263,8 @@ class Runtime:
                     source_age_lower_bound_s=details["source_age_lower_bound_s"],
                     heartbeat_age_s=details["heartbeat_age_s"],
                     heartbeat_limit_s=15.0, max_age_s=30.0,
-                    freshness_basis="haier_uart_sample")
+                    freshness_basis="haier_uart_sample",
+                    telemetry_reason=details["reason"])
         self.telemetry.observe(self)
         self.notify()
         self.executor.schedule()
