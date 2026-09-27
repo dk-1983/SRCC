@@ -43,6 +43,31 @@ class Runtime:
         self.telemetry = Telemetry()
         from .execution import Executor
         self.executor = Executor(self)
+        from .haier_telemetry import HaierTelemetry
+        self.haier = HaierTelemetry() if data.get("ac_telemetry") else None
+        self.haier_result_ready = False
+
+    async def async_prepare(self):
+        if not self.haier:
+            return
+        from .config_flow import validate_haier_binding
+        validate_haier_binding(self.hass, self.data)
+        from homeassistant.components import mqtt
+        cancel = await mqtt.async_subscribe(self.hass, self.data["haier_result_topic"], self._haier_result, qos=0)
+        self.unsubscribers.append(cancel)
+        self.haier_result_ready = True
+
+    @callback
+    def _haier_result(self, message):
+        if self.stopped or not self.haier:
+            return
+        import json
+        try:
+            payload = json.loads(message.payload)
+        except (ValueError, TypeError):
+            return
+        self.haier.result(payload, monotonic(), retained=message.retain)
+        self.refresh()
 
     async def async_set_control(self, enabled):
         """Persist operator intent, independently of shutdown cleanup."""
@@ -85,6 +110,7 @@ class Runtime:
     def stop(self):
         self.stopped = True
         self.executor.disable()
+        self.haier_result_ready = False
         for cancel in self.unsubscribers:
             cancel()
         self.unsubscribers.clear()
@@ -97,6 +123,12 @@ class Runtime:
 
     @callback
     def _changed(self, event):
+        if self.haier and event.data.get("entity_id") == self.data["ac_telemetry"]:
+            state = event.data.get("new_state")
+            if state is None or state.state in ("unknown", "unavailable") or state.attributes.get("restored"):
+                self.haier.invalidate("TELEMETRY_ENTITY_UNAVAILABLE")
+            else:
+                self.haier.receive(dict(state.attributes), monotonic())
         # Loss of a backup is handled immediately. A failed backup that recovers
         # is sampled with its pair at the next scheduled minute.
         self.refresh()
@@ -158,6 +190,12 @@ class Runtime:
         else:
             target = Sample(None, "ac_target", now, Quality.UNAVAILABLE)
         target = replace(target, freshness_limit=self.data.get("ac_max_age", 180.0))
+        climate_unavailable = mode.quality is Quality.UNAVAILABLE
+        if self.haier:
+            mode, target, fault = self.haier.samples(now)
+            samples["climate"] = mode
+            samples["ac_telemetry"] = mode
+            samples["ac_fault"] = fault
         state = Snapshot(
             now=now, tin=read("trm_temperature", "temperature"),
             tout=read("outdoor_temperature", "temperature"),
@@ -166,10 +204,12 @@ class Runtime:
             vent_available=enabled.fresh(now, age) and output.fresh(now, age),
             vent_enabled=enabled, vent_output=output, ac_mode=mode, ac_target=target,
             ac_fault=fault.value if fault.fresh(now, age) else None,
-            ac_fault_monitored=bool(self.data.get("ac_fault")),
+            ac_fault_monitored=bool(self.haier or self.data.get("ac_fault")),
+            ac_command_confirmed=self.haier.confirmed(now) if self.haier else None,
             vent_ineffective=self.vent_failed,
             ac_unpowered=(self.data.get("shared_mains_confirmed") is True
-                          and mode.quality is Quality.UNAVAILABLE
+                          and climate_unavailable
+                          and not (self.haier and mode.fresh(now, age) and mode.value != "off")
                           and read("ups_online", "bool").fresh(now, age)
                           and read("ups_online", "bool").value is False
                           and read("ups_on_battery", "bool").fresh(now, age)
@@ -201,13 +241,22 @@ class Runtime:
             quality = sample.quality.value
             if quality == "valid" and not sample.fresh(now, age):
                 quality = "stale"
-            source_state = self.hass.states.get(self.data[role])
+            source_id = self.data.get("ac_telemetry") if self.haier and role in ("climate", "ac_fault", "ac_telemetry") else self.data.get(role)
+            source_state = self.hass.states.get(source_id) if source_id else None
             reported = getattr(source_state, "last_reported", None)
             self.input_status[role] = {
                 "quality": quality,
                 "publication_age_s": round((wall_now - reported).total_seconds(), 1) if reported else None,
                 "max_age_s": sample.freshness_limit if sample.freshness_limit is not None else age,
             }
+        if self.haier:
+            details = self.haier.diagnostics(now)
+            for role in ("climate", "ac_telemetry", "ac_fault"):
+                self.input_status[role].update(
+                    source_age_lower_bound_s=details["source_age_lower_bound_s"],
+                    heartbeat_age_s=details["heartbeat_age_s"],
+                    heartbeat_limit_s=15.0, max_age_s=30.0,
+                    freshness_basis="haier_uart_sample")
         self.telemetry.observe(self)
         self.notify()
         self.executor.schedule()

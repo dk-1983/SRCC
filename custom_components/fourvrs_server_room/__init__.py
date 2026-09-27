@@ -17,8 +17,9 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
     entry.runtime_data = runtime
     entry.async_on_unload(runtime.stop)
     entry.async_on_unload(entry.add_update_listener(_options_updated))
-    runtime.start()
     try:
+        await runtime.async_prepare()
+        runtime.start()
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         await runtime.async_restore_control()
     except Exception:

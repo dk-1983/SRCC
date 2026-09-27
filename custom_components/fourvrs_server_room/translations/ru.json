@@ -42,7 +42,10 @@
           "minimum_dwell": "Минимальный интервал штатных переключений охлаждения",
           "minimum_ac_off": "Минимальная выдержка перед запуском остановленного AC",
           "ac_max_age": "Максимальный возраст публикации кондиционера",
-          "ac_readback_timeout": "Ожидание подтверждения команды кондиционера"
+          "ac_readback_timeout": "Ожидание подтверждения команды кондиционера",
+          "ac_telemetry": "Телеметрия Haier v1.3+ (необязательно)",
+          "haier_result_topic": "MQTT-топик результатов Haier (PREFIX/result)",
+          "haier_readback_timeout": "Ожидание подтверждения Haier по телеметрии"
         }
       }
     },
@@ -60,7 +63,9 @@
       "missing_control_entities": "Для управления нужны climate, разрешение вентиляции, switch выхода и оба сигнала UPS.",
       "control_entities_not_writable": "Разрешение вентиляции должно быть number или switch; выход вентилятора — switch.",
       "missing_control_settings": "Укажите уставку AC, пороги включения/выключения резерва и минимальную разность температур.",
-      "control_readback_required": "Подтвердите проверенную обратную связь оборудования для исполнительного профиля."
+      "control_readback_required": "Подтвердите проверенную обратную связь оборудования для исполнительного профиля.",
+      "invalid_haier_result_topic": "Укажите точный топик PREFIX/result без MQTT-шаблонов.",
+      "haier_device_mismatch": "Телеметрия и climate должны принадлежать одному MQTT-устройству Haier."
     },
     "abort": {
       "single_instance_allowed": "В этой версии поддерживается один контроллер."
@@ -108,7 +113,10 @@
           "minimum_dwell": "Минимальный интервал штатных переключений охлаждения",
           "minimum_ac_off": "Минимальная выдержка перед запуском остановленного AC",
           "ac_max_age": "Максимальный возраст публикации кондиционера",
-          "ac_readback_timeout": "Ожидание подтверждения команды кондиционера"
+          "ac_readback_timeout": "Ожидание подтверждения команды кондиционера",
+          "ac_telemetry": "Телеметрия Haier v1.3+ (необязательно)",
+          "haier_result_topic": "MQTT-топик результатов Haier (PREFIX/result)",
+          "haier_readback_timeout": "Ожидание подтверждения Haier по телеметрии"
         }
       }
     },
@@ -126,7 +134,9 @@
       "missing_control_entities": "Для управления нужны climate, разрешение вентиляции, switch выхода и оба сигнала UPS.",
       "control_entities_not_writable": "Разрешение вентиляции должно быть number или switch; выход вентилятора — switch.",
       "missing_control_settings": "Укажите уставку AC, пороги включения/выключения резерва и минимальную разность температур.",
-      "control_readback_required": "Подтвердите проверенную обратную связь оборудования для исполнительного профиля."
+      "control_readback_required": "Подтвердите проверенную обратную связь оборудования для исполнительного профиля.",
+      "invalid_haier_result_topic": "Укажите точный топик PREFIX/result без MQTT-шаблонов.",
+      "haier_device_mismatch": "Телеметрия и climate должны принадлежать одному MQTT-устройству Haier."
     }
   },
   "entity": {

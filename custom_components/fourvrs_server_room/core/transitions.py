@@ -63,6 +63,8 @@ class TransitionPlanner:
         self.error = reason
 
     def _confirmed(self, snapshot: Snapshot, action: Action, since: float) -> bool:
+        if action in (Action.AC_OFF, Action.AC_COOL, Action.AC_SET_TARGET) and snapshot.ac_command_confirmed is False:
+            return False
         sample, value = {
             Action.FAN_OFF: (snapshot.vent_output, False),
             Action.FAN_ON: (snapshot.vent_output, True),

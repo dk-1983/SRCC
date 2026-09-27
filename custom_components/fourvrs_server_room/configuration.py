@@ -24,6 +24,13 @@ def validate(data: dict) -> dict:
     ac_age = result["ac_max_age"]
     if isinstance(ac_age, bool) or not isinstance(ac_age, (int, float)) or not isfinite(ac_age) or ac_age <= 0:
         raise ConfigurationError("invalid_timing")
+    if result.get("ac_telemetry"):
+        if not result.get("climate"):
+            raise ConfigurationError("missing_control_entities")
+        topic = result.get("haier_result_topic", "")
+        if (not isinstance(topic, str) or not topic or len(topic) > 256
+                or any(c in topic for c in ("+", "#", "\x00")) or not topic.endswith("/result")):
+            raise ConfigurationError("invalid_haier_result_topic")
     selected = []
     for role, domains in ENTITY_ROLES.items():
         if role not in result:
@@ -59,7 +66,7 @@ def validate(data: dict) -> dict:
         value = result[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
             raise ConfigurationError("invalid_execution")
-        if key != "ac_target" and (value < 0 or (key in ("command_timeout", "ac_readback_timeout") and value == 0)):
+        if key != "ac_target" and (value < 0 or (key in ("command_timeout", "ac_readback_timeout", "haier_readback_timeout") and value == 0)):
             raise ConfigurationError("invalid_execution")
     if result.get("control_profile_enabled", False):
         if not all(result.get(key) for key in ("climate", "vent_enable", "vent_output",

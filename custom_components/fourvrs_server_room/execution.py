@@ -34,6 +34,9 @@ class Executor:
         validate(self.runtime.data)
         self.generation += 1
         self.enabled, self.error = True, None
+        if self.runtime.haier:
+            self.runtime.haier.command = None
+            self.runtime.haier.command_error = None
         self.runtime.vent_failed = False
         self.planner, self.target = None, None
         self.last_off = monotonic()
@@ -43,6 +46,9 @@ class Executor:
         self.runtime.refresh()
 
     def disable(self):
+        if self.runtime.haier:
+            self.runtime.haier.command = None
+            self.runtime.haier.command_error = None
         was_enabled = self.enabled
         self.enabled = False
         self.generation += 1
@@ -66,7 +72,8 @@ class Executor:
         return TransitionPlanner(core_config(data), max_age=data["max_age"],
                                  timeout=data["command_timeout"], ac_target=data["ac_target"],
                                  manual_fan=True, live_target_updates=True,
-                                 ac_readback_timeout=data.get("ac_readback_timeout", 3.0))
+                                 ac_readback_timeout=(data.get("haier_readback_timeout", 35.0) if self.runtime.haier
+                                                      else data.get("ac_readback_timeout", 3.0)))
 
     async def _run(self):
         generation = self.generation
@@ -78,8 +85,18 @@ class Executor:
                     return
                 self.wait_details = {}
                 self.runtime.refresh()
+                if self.runtime.haier and self.runtime.haier.command_error:
+                    raise HomeAssistantError(self.runtime.haier.command_error)
                 state = self.runtime.snapshot
                 status = self.runtime.status
+                # A manual MQTT/web/Modbus command may still be in flight.
+                # Wait for its firmware outcome before planning our next action.
+                haier = self.runtime.haier
+                if (haier and state.ac_available and haier.frame.command_state == "pending"
+                        and haier.command is None
+                        and (self.planner is None or self.planner.pending is None)):
+                    self.step = Step("WAIT_HAIER_COMMAND", reason="EXTERNAL_COMMAND_PENDING")
+                    return
                 state = replace(state, vent_ineffective=state.vent_ineffective or status.trend.ineffective is True)
                 selected = status.temperature.sample
                 if selected is not None:
@@ -102,6 +119,8 @@ class Executor:
                         if self.last_command:
                             self.last_command = dict(self.last_command, status="confirmed")
                         self.planner.pending = None
+                        if self.runtime.haier:
+                            self.runtime.haier.command = None
                     elif elapsed >= self.planner.pending_timeout:
                         raise HomeAssistantError("READBACK_TIMEOUT")
                     else:
@@ -138,6 +157,8 @@ class Executor:
                 self.step = self.planner.advance(state, target, automatic=True,
                                                  ready=selected is not None, timing_allowed=allowed)
                 if previous_pending and self.planner.pending is not previous_pending:
+                    if self.runtime.haier:
+                        self.runtime.haier.command = None
                     self.runtime.telemetry.record("command_confirmed", action=previous_pending.value,
                                                   elapsed_s=round(now - pending_since, 3))
                     if self.last_command:
@@ -221,6 +242,10 @@ class Executor:
         role = "vent_enable" if action in (Action.VENT_DISABLE, Action.VENT_ENABLE) else (
             "vent_output" if action in (Action.FAN_ON, Action.FAN_OFF) else "climate")
         parameters = {key: value for key, value in payload.items() if key != "entity_id"}
+        if rt.haier and role == "climate":
+            if not rt.haier_result_ready:
+                raise HomeAssistantError("HAIER_RESULT_SUBSCRIPTION_MISSING")
+            rt.haier.arm(action.value, monotonic())
         event = rt.telemetry.record("command_sent", action=action.value, role=role,
                                     service=domain + "." + service, parameters=parameters)
         self.last_command = {"sequence": event["sequence"], "time": event["time"],

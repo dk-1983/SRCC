@@ -17,6 +17,7 @@ def schema(defaults=None):
         marker = vol.Required if role in REQUIRED_ROLES else vol.Optional
         fields[marker(role, description={"suggested_value": defaults.get(role)})] = selector.EntitySelector(
             selector.EntitySelectorConfig(domain=domains))
+    fields[vol.Optional("haier_result_topic", description={"suggested_value": defaults.get("haier_result_topic")})] = selector.TextSelector()
     for key in TIMING_FIELDS:
         fields[vol.Required(key, description={"suggested_value": defaults.get(key)})] = selector.NumberSelector(
             selector.NumberSelectorConfig(min=0, step="any", mode=selector.NumberSelectorMode.BOX,
@@ -57,7 +58,23 @@ def validate_with_hass(hass, data):
         registered = er.async_get(hass).async_get(entity_id)
         if registered is not None and registered.platform == DOMAIN:
             raise ConfigurationError("self_reference")
+    validate_haier_binding(hass, data)
     return data
+
+
+def validate_haier_binding(hass, data):
+    """Telemetry and command entity must belong to one MQTT device."""
+    if not data.get("ac_telemetry"):
+        return
+    from homeassistant.helpers import entity_registry as er
+    registry = er.async_get(hass)
+    climate = registry.async_get(data["climate"])
+    telemetry = registry.async_get(data["ac_telemetry"])
+    if (climate is None or telemetry is None or climate.platform != "mqtt"
+            or telemetry.platform != "mqtt" or not climate.device_id
+            or climate.device_id != telemetry.device_id
+            or not telemetry.unique_id.endswith("_telemetry")):
+        raise ConfigurationError("haier_device_mismatch")
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):

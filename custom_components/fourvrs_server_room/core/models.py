@@ -148,6 +148,8 @@ class Snapshot:
     # Unassigned optional fault input differs from a configured input with lost data.
     ac_fault_monitored: bool = True
     ac_unpowered: bool = False
+    # None is legacy HA publication readback; False blocks telemetry confirmation.
+    ac_command_confirmed: bool | None = None
 
     @property
     def ac_fault_allows_operation(self) -> bool:

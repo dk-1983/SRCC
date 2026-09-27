@@ -42,7 +42,10 @@
           "minimum_dwell": "Minimum time between normal cooling changes",
           "minimum_ac_off": "Minimum wait before starting stopped AC",
           "ac_max_age": "Maximum air conditioner publication age",
-          "ac_readback_timeout": "Air conditioner command readback timeout"
+          "ac_readback_timeout": "Air conditioner command readback timeout",
+          "ac_telemetry": "Haier v1.3+ telemetry (optional)",
+          "haier_result_topic": "Haier MQTT result topic (PREFIX/result)",
+          "haier_readback_timeout": "Haier telemetry command confirmation timeout"
         }
       }
     },
@@ -60,7 +63,9 @@
       "missing_control_entities": "Control requires climate, writable ventilation permission and output, and both UPS signals.",
       "control_entities_not_writable": "Ventilation permission must be number or switch; fan output must be switch.",
       "missing_control_settings": "Enter AC target and backup fan ON/OFF temperatures and minimum temperature difference.",
-      "control_readback_required": "Confirm tested equipment readback before enabling the command profile."
+      "control_readback_required": "Confirm tested equipment readback before enabling the command profile.",
+      "invalid_haier_result_topic": "Enter the exact PREFIX/result topic without MQTT wildcards.",
+      "haier_device_mismatch": "Telemetry and climate must belong to the same Haier MQTT device."
     },
     "abort": {
       "single_instance_allowed": "Only one controller is supported in this release."
@@ -108,7 +113,10 @@
           "minimum_dwell": "Minimum time between normal cooling changes",
           "minimum_ac_off": "Minimum wait before starting stopped AC",
           "ac_max_age": "Maximum air conditioner publication age",
-          "ac_readback_timeout": "Air conditioner command readback timeout"
+          "ac_readback_timeout": "Air conditioner command readback timeout",
+          "ac_telemetry": "Haier v1.3+ telemetry (optional)",
+          "haier_result_topic": "Haier MQTT result topic (PREFIX/result)",
+          "haier_readback_timeout": "Haier telemetry command confirmation timeout"
         }
       }
     },
@@ -126,7 +134,9 @@
       "missing_control_entities": "Control requires climate, writable ventilation permission and output, and both UPS signals.",
       "control_entities_not_writable": "Ventilation permission must be number or switch; fan output must be switch.",
       "missing_control_settings": "Enter AC target and backup fan ON/OFF temperatures and minimum temperature difference.",
-      "control_readback_required": "Confirm tested equipment readback before enabling the command profile."
+      "control_readback_required": "Confirm tested equipment readback before enabling the command profile.",
+      "invalid_haier_result_topic": "Enter the exact PREFIX/result topic without MQTT wildcards.",
+      "haier_device_mismatch": "Telemetry and climate must belong to the same Haier MQTT device."
     }
   },
   "entity": {

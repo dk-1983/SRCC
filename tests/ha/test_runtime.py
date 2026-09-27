@@ -34,6 +34,7 @@ class HaRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="srcc-ha-", dir="/repo/.local")
         self.hass = HomeAssistant(self.directory.name)
+        self.hass.config.skip_pip = True  # Offline tests; MQTT transport is mocked separately.
         self.hass.config_entries = ConfigEntries(self.hass, {})
         from homeassistant.helpers import entity_registry, device_registry
         device_registry.async_setup(self.hass)
