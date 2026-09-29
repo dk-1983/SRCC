@@ -45,7 +45,12 @@
           "ac_readback_timeout": "Air conditioner command readback timeout",
           "ac_telemetry": "Haier v1.3+ telemetry (optional)",
           "haier_result_topic": "Haier MQTT result topic (PREFIX/result)",
-          "haier_readback_timeout": "Haier telemetry command confirmation timeout"
+          "haier_readback_timeout": "Haier telemetry command confirmation timeout",
+          "voice_area": "Notification area",
+          "voice_info": "Voice INFO messages",
+          "voice_warning": "Voice WARNING messages",
+          "voice_error": "Voice ERROR messages",
+          "voice_repeat": "Repeat active ERROR through the center"
         }
       }
     },
@@ -65,7 +70,8 @@
       "missing_control_settings": "Enter AC target and backup fan ON/OFF temperatures and minimum temperature difference.",
       "control_readback_required": "Confirm tested equipment readback before enabling the command profile.",
       "invalid_haier_result_topic": "Enter the exact PREFIX/result topic without MQTT wildcards.",
-      "haier_device_mismatch": "Telemetry and climate must belong to the same Haier MQTT device."
+      "haier_device_mismatch": "Telemetry and climate must belong to the same Haier MQTT device.",
+      "invalid_voice_settings": "Select an existing HA area and boolean voice preferences."
     },
     "abort": {
       "single_instance_allowed": "Only one controller is supported in this release."
@@ -116,7 +122,12 @@
           "ac_readback_timeout": "Air conditioner command readback timeout",
           "ac_telemetry": "Haier v1.3+ telemetry (optional)",
           "haier_result_topic": "Haier MQTT result topic (PREFIX/result)",
-          "haier_readback_timeout": "Haier telemetry command confirmation timeout"
+          "haier_readback_timeout": "Haier telemetry command confirmation timeout",
+          "voice_area": "Notification area",
+          "voice_info": "Voice INFO messages",
+          "voice_warning": "Voice WARNING messages",
+          "voice_error": "Voice ERROR messages",
+          "voice_repeat": "Repeat active ERROR through the center"
         }
       }
     },
@@ -136,7 +147,8 @@
       "missing_control_settings": "Enter AC target and backup fan ON/OFF temperatures and minimum temperature difference.",
       "control_readback_required": "Confirm tested equipment readback before enabling the command profile.",
       "invalid_haier_result_topic": "Enter the exact PREFIX/result topic without MQTT wildcards.",
-      "haier_device_mismatch": "Telemetry and climate must belong to the same Haier MQTT device."
+      "haier_device_mismatch": "Telemetry and climate must belong to the same Haier MQTT device.",
+      "invalid_voice_settings": "Select an existing HA area and boolean voice preferences."
     }
   },
   "entity": {
@@ -192,6 +204,9 @@
     "switch": {
       "automatic_control": {
         "name": "Automatic control"
+      },
+      "voice_maintenance": {
+        "name": "Notification maintenance (cooling unchanged)"
       }
     }
   }

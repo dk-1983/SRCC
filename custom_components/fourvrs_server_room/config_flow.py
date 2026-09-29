@@ -38,6 +38,9 @@ def schema(defaults=None):
     for key, value in EXECUTION_DEFAULTS.items():
         fields[vol.Optional(key, default=defaults.get(key, value))] = selector.NumberSelector(
             selector.NumberSelectorConfig(min=0, step="any", mode=selector.NumberSelectorMode.BOX, unit_of_measurement="s"))
+    fields[vol.Optional("voice_area", description={"suggested_value": defaults.get("voice_area")})] = selector.AreaSelector()
+    for key in ("voice_info", "voice_warning", "voice_error", "voice_repeat"):
+        fields[vol.Optional(key, default=defaults.get(key, False))] = selector.BooleanSelector()
     return vol.Schema(fields)
 
 
@@ -58,6 +61,10 @@ def validate_with_hass(hass, data):
         registered = er.async_get(hass).async_get(entity_id)
         if registered is not None and registered.platform == DOMAIN:
             raise ConfigurationError("self_reference")
+    if data.get("voice_area"):
+        from homeassistant.helpers import area_registry
+        if area_registry.async_get(hass).async_get_area(data["voice_area"]) is None:
+            raise ConfigurationError("invalid_voice_settings")
     validate_haier_binding(hass, data)
     return data
 

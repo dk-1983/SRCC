@@ -17,6 +17,12 @@ def core_config(data: dict) -> Config:
 
 def validate(data: dict) -> dict:
     result = {key: value for key, value in data.items() if value != ""}
+    for key in ("voice_info", "voice_warning", "voice_error", "voice_repeat"):
+        result.setdefault(key, False)
+        if type(result[key]) is not bool:
+            raise ConfigurationError("invalid_voice_settings")
+    if "voice_area" in result and (not isinstance(result["voice_area"], str) or not result["voice_area"]):
+        raise ConfigurationError("invalid_voice_settings")
     for role in REQUIRED_ROLES:
         if role not in result:
             raise ConfigurationError("missing_entity")

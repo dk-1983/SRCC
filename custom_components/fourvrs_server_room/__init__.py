@@ -39,4 +39,6 @@ async def async_unload_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> boo
         runtime.stop()
         if runtime.executor.task is not None:
             await runtime.executor.task
+        if runtime.voice.closing_task is not None:
+            await runtime.voice.closing_task
     return unloaded

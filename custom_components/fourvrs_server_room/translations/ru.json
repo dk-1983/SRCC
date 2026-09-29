@@ -45,7 +45,12 @@
           "ac_readback_timeout": "Ожидание подтверждения команды кондиционера",
           "ac_telemetry": "Телеметрия Haier v1.3+ (необязательно)",
           "haier_result_topic": "MQTT-топик результатов Haier (PREFIX/result)",
-          "haier_readback_timeout": "Ожидание подтверждения Haier по телеметрии"
+          "haier_readback_timeout": "Ожидание подтверждения Haier по телеметрии",
+          "voice_area": "Помещение оповещений",
+          "voice_info": "Голосовые сообщения INFO",
+          "voice_warning": "Голосовые предупреждения WARNING",
+          "voice_error": "Голосовые ошибки ERROR",
+          "voice_repeat": "Повторять активные ERROR через центр"
         }
       }
     },
@@ -65,7 +70,8 @@
       "missing_control_settings": "Укажите уставку AC, пороги включения/выключения резерва и минимальную разность температур.",
       "control_readback_required": "Подтвердите проверенную обратную связь оборудования для исполнительного профиля.",
       "invalid_haier_result_topic": "Укажите точный топик PREFIX/result без MQTT-шаблонов.",
-      "haier_device_mismatch": "Телеметрия и climate должны принадлежать одному MQTT-устройству Haier."
+      "haier_device_mismatch": "Телеметрия и climate должны принадлежать одному MQTT-устройству Haier.",
+      "invalid_voice_settings": "Выберите существующее помещение HA и логические настройки уровней."
     },
     "abort": {
       "single_instance_allowed": "В этой версии поддерживается один контроллер."
@@ -116,7 +122,12 @@
           "ac_readback_timeout": "Ожидание подтверждения команды кондиционера",
           "ac_telemetry": "Телеметрия Haier v1.3+ (необязательно)",
           "haier_result_topic": "MQTT-топик результатов Haier (PREFIX/result)",
-          "haier_readback_timeout": "Ожидание подтверждения Haier по телеметрии"
+          "haier_readback_timeout": "Ожидание подтверждения Haier по телеметрии",
+          "voice_area": "Помещение оповещений",
+          "voice_info": "Голосовые сообщения INFO",
+          "voice_warning": "Голосовые предупреждения WARNING",
+          "voice_error": "Голосовые ошибки ERROR",
+          "voice_repeat": "Повторять активные ERROR через центр"
         }
       }
     },
@@ -136,7 +147,8 @@
       "missing_control_settings": "Укажите уставку AC, пороги включения/выключения резерва и минимальную разность температур.",
       "control_readback_required": "Подтвердите проверенную обратную связь оборудования для исполнительного профиля.",
       "invalid_haier_result_topic": "Укажите точный топик PREFIX/result без MQTT-шаблонов.",
-      "haier_device_mismatch": "Телеметрия и climate должны принадлежать одному MQTT-устройству Haier."
+      "haier_device_mismatch": "Телеметрия и climate должны принадлежать одному MQTT-устройству Haier.",
+      "invalid_voice_settings": "Выберите существующее помещение HA и логические настройки уровней."
     }
   },
   "entity": {
@@ -192,6 +204,9 @@
     "switch": {
       "automatic_control": {
         "name": "Автоматическое управление"
+      },
+      "voice_maintenance": {
+        "name": "Обслуживание оповещений (охлаждение не изменяется)"
       }
     }
   }

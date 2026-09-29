@@ -46,8 +46,11 @@ class Runtime:
         from .haier_telemetry import HaierTelemetry
         self.haier = HaierTelemetry() if data.get("ac_telemetry") else None
         self.haier_result_ready = False
+        from .voice import ProcessVoice
+        self.voice = ProcessVoice(self)
 
     async def async_prepare(self):
+        await self.voice.async_restore()
         if not self.haier:
             return
         from .config_flow import validate_haier_binding
@@ -105,10 +108,12 @@ class Runtime:
         # change and serves minute-based sampling even for unchanged values.
         self.unsubscribers.append(async_track_time_interval(self.hass, self._tick, timedelta(seconds=1)))
         self.refresh()
+        self.voice.start()
 
     @callback
     def stop(self):
         self.stopped = True
+        self.voice.stop()
         self.executor.disable()
         self.haier_result_ready = False
         for cancel in self.unsubscribers:

@@ -7,6 +7,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
     status = runtime.status
     return {
         "version": VERSION,
+        "voice": runtime.voice.diagnostics(),
         "ac_telemetry": runtime.haier.diagnostics(runtime.snapshot.now) if runtime.haier else None,
         "inputs": runtime.input_status,
         "recent_events": list(runtime.telemetry.events),
