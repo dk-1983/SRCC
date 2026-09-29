@@ -27,6 +27,7 @@ class Executor:
         self.timing = None
         self.wait_details = {}
         self.last_command = None
+        self.haier_recovery = None
 
     def enable(self):
         if not self.runtime.data.get("control_profile_enabled"):
@@ -34,9 +35,11 @@ class Executor:
         validate(self.runtime.data)
         self.generation += 1
         self.enabled, self.error = True, None
+        self.haier_recovery = None
         if self.runtime.haier:
             self.runtime.haier.command = None
             self.runtime.haier.command_error = None
+            self.runtime.haier.command_error_detail = None
         self.runtime.vent_failed = False
         self.planner, self.target = None, None
         self.last_off = monotonic()
@@ -49,8 +52,10 @@ class Executor:
         if self.runtime.haier:
             self.runtime.haier.command = None
             self.runtime.haier.command_error = None
+            self.runtime.haier.command_error_detail = None
         was_enabled = self.enabled
         self.enabled = False
+        self.haier_recovery = None
         self.generation += 1
         self.planner, self.target = None, None
         self.step = Step("OBSERVATION_ONLY")
@@ -75,6 +80,50 @@ class Executor:
                                  ac_readback_timeout=(data.get("haier_readback_timeout", 35.0) if self.runtime.haier
                                                       else data.get("ac_readback_timeout", 3.0)))
 
+    def _recover_haier_conflict(self):
+        """Abandon ambiguous ownership, never treat a foreign result as success."""
+        rt, haier = self.runtime, self.runtime.haier
+        if not haier:
+            return False
+        now = rt.snapshot.now
+        recoverable = ("HAIER_COMMAND_CONFLICT", "HAIER_COMMAND_SUPERSEDED")
+        if self.haier_recovery is None:
+            if haier.command_error not in recoverable:
+                return False
+            self.haier_recovery = dict(
+                since=now, boot=haier.command["boot"] if haier.command else haier.frame.boot,
+                ready_at=now + max(5.0, rt.data.get("haier_readback_timeout", 35.0)))
+            if self.last_command:
+                self.last_command = dict(self.last_command, status="conflict")
+            rt.telemetry.record("command_conflict", warning=True,
+                                reason=haier.command_error, detail=haier.command_error_detail)
+        recovery = self.haier_recovery
+        if (haier.frame.command_state == "timeout_unconfirmed"
+                and haier.received_at >= recovery["since"]):
+            raise HomeAssistantError("HAIER_COMMAND_UNCONFIRMED")
+        if haier.frame.boot != recovery["boot"]:
+            raise HomeAssistantError("HAIER_RESTART_DURING_COMMAND")
+        # A complete readback window lets an already submitted command finish.
+        # Result traffic adds a quiet period; a heartbeat alone cannot release us.
+        remaining = max(recovery["ready_at"] - now,
+                        (haier.last_result_at or recovery["since"]) + 5.0 - now, 0)
+        if (remaining > 0 or not rt.snapshot.ac_available
+                or not haier.frame.fault_valid
+                or haier.frame.command_state != "confirmed"
+                or haier.measured_at <= recovery["since"]):
+            self.step = Step("WAIT_HAIER_COMMAND", reason="COMMAND_CONFLICT_RECOVERY")
+            self.wait_details = {"conflict_recovery_remaining_s": round(remaining, 1)}
+            return True
+        rt.telemetry.record("command_reconciliation", reason=haier.command_error,
+                            detail=haier.command_error_detail)
+        haier.command = None
+        haier.command_error = None
+        haier.command_error_detail = None
+        self.haier_recovery = None
+        self.planner, self.target = None, None
+        # Normal policy, power, interlock and compressor guards run again below.
+        return False
+
     async def _run(self):
         generation = self.generation
         try:
@@ -85,6 +134,8 @@ class Executor:
                     return
                 self.wait_details = {}
                 self.runtime.refresh()
+                if self._recover_haier_conflict():
+                    return
                 if self.runtime.haier and self.runtime.haier.command_error:
                     raise HomeAssistantError(self.runtime.haier.command_error)
                 state = self.runtime.snapshot

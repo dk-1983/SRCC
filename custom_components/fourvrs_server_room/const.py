@@ -1,7 +1,7 @@
 """HA adapter constants; operational defaults live in the core Config."""
 DOMAIN = "fourvrs_server_room"
 NAME = "Server Room Climate Controller"
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 ENTITY_ROLES = {
     "trm_temperature": ["sensor"],
     "outdoor_temperature": ["sensor"],

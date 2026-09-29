@@ -44,6 +44,7 @@ class HaierRuntimeTests(unittest.IsolatedAsyncioTestCase):
         for name in ("runtime", "execution"):
             clock = patch(f"custom_components.fourvrs_server_room.{name}.monotonic", side_effect=lambda: self.now)
             clock.start(); self.addCleanup(clock.stop)
+        await self.settle()  # Drain fixture events before subscribing to live telemetry.
         self.runtime.start()
         self.runtime.haier_result_ready = True
         self.feedback = False
@@ -70,7 +71,7 @@ class HaierRuntimeTests(unittest.IsolatedAsyncioTestCase):
         for _ in range(5):
             self.runtime.refresh()
         self.assertEqual(self.runtime.snapshot.ac_mode.measured_at, stamp)
-        self.now += 15
+        self.now += 15.01
         self.runtime.refresh()
         self.assertFalse(self.runtime.snapshot.ac_available)
 
@@ -178,10 +179,10 @@ class HaierRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_ac_off_needs_command_evidence_before_ventilation_enable(self):
         self.hass.states.async_set("sensor.tout", "-2", {"unit_of_measurement": "°C"})
-        await self.publish()
+        await self.publish(.1)
         self.now += .1
         self.runtime.executor.enable(); await self.settle()
-        self.assertEqual(self.names(), [("climate", "set_hvac_mode")])
+        self.assertEqual(self.names(), [("climate", "set_hvac_mode")], str(self.runtime.status))
         self.assertEqual(self.calls[0][2]["hvac_mode"], "off")
         await self.publish(2, mode="OFF", status_frames=12, sample_uptime_ms=12000,
                            published_uptime_ms=12000, request_id="mqtt-2")
@@ -244,3 +245,122 @@ class HaierRuntimeTests(unittest.IsolatedAsyncioTestCase):
         await self.settle()
         self.assertFalse(self.runtime.snapshot.ac_available)
         self.assertEqual(self.runtime.haier.invalid_reason, "INVALID_FAULT")
+
+    async def conflict_setup(self):
+        await self.publish()
+        self.now += .1
+        self.runtime.executor.enable(); await self.settle()
+        await self.result(status="accepted", request_id="mqtt-2", field="target")
+        await self.result(status="accepted", request_id="mqtt-3", field="target")
+        self.assertIsNone(self.runtime.executor.error)
+        self.assertEqual(self.runtime.executor.step.reason, "COMMAND_CONFLICT_RECOVERY")
+        self.assertEqual(self.runtime.executor.last_command["status"], "conflict")
+        self.assertEqual(len(self.calls), 1)
+
+    async def recovery_frame(self, elapsed=36, **changes):
+        values = dict(status_frames=10+int(elapsed), sample_uptime_ms=10000+int(elapsed*1000),
+                      published_uptime_ms=10000+int(elapsed*1000), request_id="mqtt-3")
+        values.update(changes)
+        await self.publish(elapsed, **values)
+
+    async def test_conflict_recovers_and_corrects_target_with_independent_confirmation(self):
+        await self.conflict_setup()
+        await self.recovery_frame(2, target_temperature=21)
+        self.assertEqual(len(self.calls), 1)
+        await self.recovery_frame(target_temperature=21)
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(self.calls[-1][2], {"entity_id": "climate.ac", "temperature": 22})
+        await self.result(status="accepted", request_id="mqtt-4", field="target")
+        await self.result(status="confirmed", request_id="mqtt-4")
+        await self.recovery_frame(38, target_temperature=22, request_id="mqtt-4")
+        self.assertTrue(self.runtime.executor.step.complete)
+        self.assertEqual(self.runtime.executor.last_command["status"], "confirmed")
+        events = [e["event"] for e in self.runtime.telemetry.events]
+        self.assertIn("command_conflict", events)
+        self.assertIn("command_reconciliation", events)
+        self.assertEqual(events.count("command_confirmed"), 1)
+
+    async def recover_mode(self, mode):
+        await self.conflict_setup()
+        await self.recovery_frame(mode=mode, target_temperature=21)
+        self.assertEqual(self.calls[-1][2], {"entity_id": "climate.ac", "hvac_mode": "cool"})
+        await self.result(status="accepted", request_id="mqtt-4", field="hvac_mode")
+        await self.result(status="confirmed", request_id="mqtt-4")
+        await self.recovery_frame(38, request_id="mqtt-4", target_temperature=21)
+        self.assertEqual(self.calls[-1][2], {"entity_id": "climate.ac", "temperature": 22})
+        self.assertEqual(len(self.calls), 3)
+
+    async def test_conflict_needs_new_uart_not_heartbeat_or_pending(self):
+        await self.conflict_setup()
+        await self.publish(36, published_uptime_ms=46000, age_ms=36000, request_id="mqtt-3")
+        self.assertEqual(len(self.calls), 1)
+        await self.recovery_frame(37, command_state="pending")
+        self.assertEqual(len(self.calls), 1)
+        await self.result(status="confirmed", request_id="mqtt-3")
+        await self.recovery_frame(38)
+        self.assertEqual(len(self.calls), 1)  # Quiet period after result.
+        await self.recovery_frame(43)
+        self.assertEqual(len(self.calls), 2)
+
+    async def test_conflict_does_not_resend_already_achieved_target(self):
+        await self.conflict_setup()
+        await self.recovery_frame(target_temperature=22)
+        self.assertEqual(len(self.calls), 1)
+        self.assertTrue(self.runtime.executor.step.complete)
+        self.assertNotEqual(self.runtime.executor.last_command["status"], "confirmed")
+
+    async def test_conflict_recovery_keeps_compressor_delay(self):
+        await self.conflict_setup()
+        self.runtime.data["minimum_ac_off"] = 180
+        await self.recovery_frame(mode="FAN_ONLY")
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.runtime.executor.step.phase, "WAIT_AC_MINIMUM_OFF")
+
+    async def test_conflict_recovery_does_not_bypass_fault_or_manual_off(self):
+        await self.conflict_setup()
+        await self.recovery_frame(fault=True, fault_code=1)
+        # A fault may request OFF; it must never start COOL or correct a target.
+        self.assertTrue(all(c[2].get("hvac_mode") == "off" for c in self.calls[1:]))
+        count = len(self.calls)
+        self.runtime.executor.disable()
+        await self.recovery_frame(38)
+        self.assertEqual(len(self.calls), count)
+
+    async def test_conflict_followed_by_restart_stays_latched(self):
+        await self.conflict_setup()
+        await self.recovery_frame(36, boot_id="b"*32)
+        self.assertEqual(self.runtime.executor.error, "HAIER_RESTART_DURING_COMMAND")
+        self.assertEqual(len(self.calls), 1)
+
+    async def test_conflict_followed_by_firmware_timeout_stays_latched(self):
+        await self.conflict_setup()
+        await self.recovery_frame(36, command_state="timeout_unconfirmed")
+        self.assertEqual(self.runtime.executor.error, "HAIER_COMMAND_UNCONFIRMED")
+        self.assertEqual(len(self.calls), 1)
+
+    async def test_conflict_recovers_fan_mode_then_target(self):
+        await self.recover_mode("FAN_ONLY")
+
+    async def test_conflict_recovers_heat_mode_then_target(self):
+        await self.recover_mode("HEAT")
+
+    async def test_conflict_recovers_auto_mode_then_target(self):
+        await self.recover_mode("AUTO")
+
+    async def test_conflict_recovers_dry_mode_then_target(self):
+        await self.recover_mode("DRY")
+
+    async def test_conflict_recovers_off_mode_then_target(self):
+        await self.recover_mode("OFF")
+
+    async def test_repeated_conflicts_are_rate_limited_and_can_recover(self):
+        await self.conflict_setup()
+        await self.recovery_frame(36)
+        self.assertEqual(len(self.calls), 2)
+        await self.result(status="accepted", request_id="mqtt-4", field="target")
+        await self.result(status="accepted", request_id="mqtt-5", field="target")
+        await self.recovery_frame(40, request_id="mqtt-5")
+        self.assertEqual(len(self.calls), 2)
+        await self.recovery_frame(72, request_id="mqtt-5")
+        self.assertEqual(len(self.calls), 3)
+        self.assertIsNone(self.runtime.executor.error)

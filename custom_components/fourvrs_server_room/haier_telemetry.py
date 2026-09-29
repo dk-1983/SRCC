@@ -88,6 +88,14 @@ class HaierTelemetry:
         self.retired_boots = set()
         self.command = None
         self.command_error = None
+        self.command_error_detail = None
+        self.last_result_at = None
+
+    def fail_command(self, reason, detail):
+        # Keep the first cause; later telemetry must not hide the original race.
+        if self.command_error is None:
+            self.command_error = reason
+            self.command_error_detail = detail
 
     def invalidate(self, reason):
         self.invalid_reason = reason
@@ -113,7 +121,7 @@ class HaierTelemetry:
                 self.retired_boots.add(old.boot)
                 self.anchor = None
                 if self.command:
-                    self.command_error = "HAIER_RESTART_DURING_COMMAND"
+                    self.fail_command("HAIER_RESTART_DURING_COMMAND", "boot_changed")
             candidate = now - frame.published_ms / 1000
             self.anchor = candidate if self.anchor is None else min(self.anchor, candidate)
             measured = self.anchor + frame.sample_ms / 1000
@@ -124,9 +132,9 @@ class HaierTelemetry:
             if self.command and self.command.get("request_id"):
                 rid = self.command["request_id"]
                 if frame.request_id not in (rid, self.command["baseline_request"]):
-                    self.command_error = "HAIER_COMMAND_SUPERSEDED"
+                    self.fail_command("HAIER_COMMAND_SUPERSEDED", "telemetry_request_changed")
                 if frame.request_id == rid and frame.command_state == "timeout_unconfirmed":
-                    self.command_error = "HAIER_COMMAND_UNCONFIRMED"
+                    self.fail_command("HAIER_COMMAND_UNCONFIRMED", "firmware_timeout")
             return True
         except (ValueError, TypeError, OverflowError) as error:
             self.invalidate(str(error))
@@ -161,12 +169,17 @@ class HaierTelemetry:
         if self.frame.command_state == "pending":
             raise ValueError("HAIER_COMMAND_ALREADY_PENDING")
         self.command_error = None
+        self.command_error_detail = None
         self.command = dict(action=action, boot=self.frame.boot, count=self.frame.count,
                             published_ms=self.frame.published_ms, sent_at=now,
                             baseline_request=self.frame.request_id, request_id=None, confirmed=False)
 
     def result(self, payload, now, retained=False):
-        if retained or not self.command or not isinstance(payload, dict):
+        if retained or not isinstance(payload, dict):
+            return
+        if payload.get("status") in ("accepted", "confirmed", "rejected", "timeout_unconfirmed"):
+            self.last_result_at = now
+        if not self.command:
             return
         command = self.command
         if now < command["sent_at"]:
@@ -174,19 +187,23 @@ class HaierTelemetry:
         status, rid = payload.get("status"), payload.get("request_id")
         expected = "target" if command["action"] == "ac_set_target" else "hvac_mode"
         if status == "rejected":
-            self.command_error = "HAIER_COMMAND_REJECTED"
+            self.fail_command("HAIER_COMMAND_REJECTED", "firmware_rejected")
         elif status == "accepted":
-            if payload.get("field") != expected or not isinstance(rid, str) or not rid or len(rid) > 80 or rid == command["baseline_request"]:
-                self.command_error = "HAIER_COMMAND_CONFLICT"
+            if payload.get("field") != expected:
+                self.fail_command("HAIER_COMMAND_CONFLICT", "unexpected_field")
+            elif not isinstance(rid, str) or not rid or len(rid) > 80:
+                self.fail_command("HAIER_COMMAND_CONFLICT", "invalid_request_id")
+            elif rid == command["baseline_request"]:
+                self.fail_command("HAIER_COMMAND_CONFLICT", "baseline_request_repeated")
             elif command["request_id"] and rid != command["request_id"]:
-                self.command_error = "HAIER_COMMAND_CONFLICT"
+                self.fail_command("HAIER_COMMAND_CONFLICT", "second_request_accepted")
             else:
                 command["request_id"] = rid
         elif command["request_id"] and rid == command["request_id"]:
             if status == "confirmed":
                 command["confirmed"] = True
             elif status == "timeout_unconfirmed":
-                self.command_error = "HAIER_COMMAND_UNCONFIRMED"
+                self.fail_command("HAIER_COMMAND_UNCONFIRMED", "firmware_timeout")
 
     def confirmed(self, now):
         c, f = self.command, self.frame
@@ -207,5 +224,6 @@ class HaierTelemetry:
                 "fault": f.fault if f else None, "fault_code": f.fault_code if f else None,
                 "command_state": f.command_state if f else None,
                 "command_error": self.command_error,
+                "command_error_detail": self.command_error_detail,
                 "command_accepted": bool(self.command and self.command.get("request_id")),
                 "result_confirmed": bool(self.command and self.command.get("confirmed"))}

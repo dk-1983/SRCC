@@ -117,3 +117,13 @@ class HaierTelemetryTests(unittest.TestCase):
                                              available=False, mode=None, target_temperature=None,
                                              fault_valid=False, fault=None, fault_code=None), 100))
         self.assertIs(cache.quality(100), Quality.UNAVAILABLE)
+
+    def test_first_conflict_detail_survives_later_superseding_telemetry(self):
+        cache = HaierTelemetry(); cache.receive(packet(), 100); cache.arm("ac_set_target", 100.1)
+        cache.result(dict(status="accepted", request_id="mqtt-2", field="target"), 100.2)
+        cache.result(dict(status="accepted", request_id="mqtt-3", field="target"), 100.3)
+        cache.receive(packet(status_frames=11, sample_uptime_ms=11000, published_uptime_ms=11000,
+                             request_id="mqtt-3"), 101)
+        self.assertEqual(cache.command_error, "HAIER_COMMAND_CONFLICT")
+        self.assertEqual(cache.diagnostics(101)["command_error_detail"], "second_request_accepted")
+        self.assertFalse(cache.confirmed(101))
