@@ -5,7 +5,7 @@ import logging
 from uuid import uuid4
 
 from homeassistant.core import callback
-from homeassistant.helpers import device_registry
+from homeassistant.helpers import device_registry, entity_registry
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 
@@ -124,6 +124,11 @@ class ProcessVoice:
         try:
             current, notices = self.projection.update(self.runtime)
             changed = current != self.current or self.metadata != self._metadata()
+            for key in sorted(self.current.keys() | current.keys()):
+                if self.current.get(key) != current.get(key):
+                    value = current.get(key, self.current.get(key))
+                    self.runtime.telemetry.record("voice_issue", key=key, level=value["level"],
+                        active=key in current, context=self._context())
             self.current = current
             for key in current:
                 self.infos.pop(key, None)  # A recurring issue invalidates queued recovery INFO.
@@ -238,7 +243,30 @@ class ProcessVoice:
         except Exception:
             _LOGGER.debug("Voice unregister not acknowledged; receiver lease must expire")
 
+    def _context(self):
+        rt = self.runtime
+        # Only fixed role names and machine codes; never exception bodies or entity IDs.
+        def code(value):
+            return value if isinstance(value, str) and len(value) <= 80 and all(
+                c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789" for c in value) else None
+        providers = {}
+        try:
+            registry = entity_registry.async_get(self.hass)
+            for role in rt.input_status:
+                source_role = "ac_telemetry" if rt.haier and role in ("climate", "ac_fault") else role
+                entity_id = rt.data.get(source_role)
+                entity = registry.async_get(entity_id) if entity_id else None
+                if entity:
+                    providers[role] = entity.platform
+        except (KeyError, RuntimeError, AttributeError):
+            pass  # Missing or not-yet-loaded registry must not suppress the equipment event.
+        return dict(source_platforms=providers, execution_phase=code(rt.executor.step.phase),
+                    execution_reason=code(rt.executor.error or rt.executor.step.reason),
+                    decision_reason=code(rt.status.decision.reason) if rt.status else None,
+                    temperature_selection=code(rt.status.temperature.reason) if rt.status else None,
+                    input_qualities={role: item["quality"] for role, item in rt.input_status.items()})
+
     def diagnostics(self):
         return dict(protocol_version=1, process_id="climate", connection=self.connection,
                     registered=self.registered, maintenance=self.maintenance,
-                    active_keys=sorted(self.current), preferences={key: self.runtime.data.get(key, False) for key in PREFERENCES})
+                    active_keys=sorted(self.current), event_context=self._context(), preferences={key: self.runtime.data.get(key, False) for key in PREFERENCES})

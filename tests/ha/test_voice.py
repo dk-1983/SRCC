@@ -301,3 +301,26 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.receiver.calls[-1][1]["source"], source)
         self.assertEqual(self.receiver.calls[-1][1]["name"], "Renamed process")
         self.assertEqual(self.receiver.calls[-1][1]["area_id"], "utility_room")
+
+    async def test_detailed_source_and_machine_context_reach_receiver_and_journal(self):
+        await self.connect()
+        await self.state("sensor.tout", "unavailable", {"friendly_name": "Уличный термометр"})
+        event = next(e for e in reversed(self.receiver.events) if e["key"] == "input_outdoor_temperature")
+        self.assertIn("Уличный термометр", event["message"])
+        self.assertIn("Климат серверной", event["message"])
+        self.assertEqual(set(event), {"key", "level", "message", "active", "resolved"})
+        records = [e for e in self.runtime.telemetry.events if e["event"] == "voice_issue"]
+        self.assertTrue(records)
+        self.assertEqual(records[-1]["context"]["input_qualities"]["outdoor_temperature"], "unavailable")
+        count = len(records)
+        self.runtime.refresh(); await self.settle()
+        self.assertEqual(len([e for e in self.runtime.telemetry.events if e["event"] == "voice_issue"]), count)
+        self.assertNotIn("sensor.tout", str(self.runtime.voice.diagnostics()))
+
+    async def test_diagnostics_identify_upstream_platform_without_entity_id(self):
+        from types import SimpleNamespace
+        registry = SimpleNamespace(async_get=lambda entity: SimpleNamespace(platform="mqtt") if entity == "climate.ac" else None)
+        with patch("custom_components.fourvrs_server_room.voice.entity_registry.async_get", return_value=registry):
+            context = self.runtime.voice.diagnostics()["event_context"]
+        self.assertEqual(context["source_platforms"]["climate"], "mqtt")
+        self.assertNotIn("climate.ac", str(context))
