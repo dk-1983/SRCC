@@ -21,7 +21,7 @@ def settings(**changes):
                 reported_freshness_confirmed=True, control_profile_enabled=True,
                 equipment_readback_confirmed=True, shared_mains_confirmed=True,
                 ac_target=22, emergency_on=24, emergency_off=20, emergency_delta=0,
-                command_timeout=5, condition_hold=0, minimum_dwell=0, minimum_ac_off=0,
+                command_timeout=5, condition_hold=0, minimum_dwell=0,
                 **changes)
 
 
@@ -190,12 +190,13 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
             self.runtime.refresh()
         self.assertFalse(self.runtime.snapshot.ac_unpowered)
 
-    async def test_minimum_off_delays_ac_without_delaying_fan_stop(self):
+    async def test_legacy_minimum_off_does_not_delay_ac(self):
         self.runtime.data["minimum_ac_off"] = 180
         self.runtime.executor.enable()
         await self.settle()
-        self.assertEqual(self.names(), [("number", "set_value"), ("switch", "turn_off")])
-        self.assertEqual(self.runtime.executor.step.phase, "WAIT_AC_MINIMUM_OFF")
+        self.assertEqual(self.names(), [("number", "set_value"), ("switch", "turn_off"),
+                                       ("climate", "set_hvac_mode")])
+        self.assertTrue(self.runtime.executor.step.complete)
 
     async def test_source_loss_during_cdr_command_prevents_cool(self):
         original = self.service
@@ -439,6 +440,46 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         await self.settle()
         self.assertEqual(self.runtime.executor.step.phase, "WAIT_TIMING")
         self.assertEqual(self.calls, [])
+
+    async def test_critical_vent_to_ac_bypasses_seasonal_timers_in_order(self):
+        self.runtime.data.update(condition_hold=30, minimum_dwell=300)
+        self.hass.states.async_set("sensor.tin", "28", {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("sensor.tout", "-1", {"unit_of_measurement": "°C"})
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.names(), [("number", "set_value"), ("switch", "turn_off"),
+                                       ("climate", "set_hvac_mode")])
+        self.assertEqual(self.calls[-1][2]["hvac_mode"], "cool")
+        self.assertTrue(self.runtime.executor.step.complete)
+
+    async def test_idle_recovery_does_not_wait_for_seasonal_dwell(self):
+        self.runtime.data.update(condition_hold=30, minimum_dwell=300)
+        self.hass.states.async_set("sensor.tout", "-1", {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.runtime.executor.enable()
+        self.runtime.executor.timing.confirmed(now=self.runtime.snapshot.now)
+        await self.settle()
+        self.assertEqual(self.names(), [("number", "set_value")])
+        self.assertTrue(self.runtime.executor.step.complete)
+        committed = self.runtime.executor.timing.committed_at
+        self.hass.states.async_set("binary_sensor.online", "unavailable")
+        await self.settle()
+        self.assertEqual(self.runtime.executor.step.phase, "BLOCKED")
+        self.hass.states.async_set("binary_sensor.online", "on")
+        await self.settle()
+        self.assertTrue(self.runtime.executor.step.complete)
+        self.assertEqual(self.runtime.executor.timing.committed_at, committed)
+        self.assertEqual(len(self.calls), 1)
+
+    async def test_legacy_ac_pause_cannot_delay_critical_cooling(self):
+        self.runtime.data["minimum_ac_off"] = 180
+        self.hass.states.async_set("sensor.tin", "28", {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("sensor.tout", "-1", {"unit_of_measurement": "°C"})
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertTrue(self.runtime.executor.step.complete)
+        self.assertIn(("climate", "set_hvac_mode"), self.names())
 
     async def delayed_ac_setup(self):
         self.runtime.data.update(command_timeout=30, ac_readback_timeout=180)

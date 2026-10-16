@@ -169,11 +169,10 @@ class VoiceProjection:
                                             "power_supply": "Внешнее питание серверной подтверждено.",
                                             "cooling_unavailable": "Контроллер больше не сообщает об отсутствии пригодного охлаждения.",
                                         }.get(key, "Условие предупреждения больше не действует."), active=False, resolved=False))
-        wait_signature = (phase, executor.target) if executor.enabled and phase in ("WAIT_TIMING", "WAIT_AC_MINIMUM_OFF") else None
+        wait_signature = (phase, executor.target) if executor.enabled and phase == "WAIT_TIMING" else None
         if self.initialized and wait_signature and wait_signature != self.wait_signature:
             notices.append(dict(key="normal_wait", level="INFO", active=False, resolved=False,
-                message="Выдерживается защитная пауза перед запуском компрессора." if phase == "WAIT_AC_MINIMUM_OFF"
-                else "Перед сменой способа охлаждения выдерживается время устойчивости условий."))
+                message="Перед сменой способа охлаждения выдерживается время устойчивости условий."))
         self.wait_signature = wait_signature
         mode = runtime.reported_mode
         command = executor.last_command or {}

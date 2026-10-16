@@ -45,7 +45,7 @@ class Observer:
                   and snapshot.proved(snapshot.vent_enabled, True, self.max_age)
                   and snapshot.proved(snapshot.vent_output, True, self.max_age))
         trend = self.trend.update(temperature, now=snapshot.now, active=active)
-        state = replace(snapshot, tin=temperature,
+        state = replace(snapshot, tin=temperature, thermal_critical=alarm.thermal_critical,
                         vent_ineffective=snapshot.vent_ineffective or trend.ineffective is True)
         decision = choose(state, self.config, max_age=self.max_age, cooling_required=cooling_required)
         warnings = tuple(f"BACKUP_UNAVAILABLE:{source}" for source in selected.warning_sources)

@@ -10,7 +10,7 @@ def choose(snapshot: Snapshot, config: Config, *, max_age: float,
     tout = snapshot.tout.temperature(snapshot.now, max_age)
     if tin is None or tout is None:
         return Decision(None, "TEMPERATURE_UNTRUSTED", ("INPUT_QUALITY",))
-    urgent = tin >= config.critical_on
+    urgent = snapshot.thermal_critical or tin >= config.critical_on
     if snapshot.power is Power.BATTERY and config.emergency_on is not None:
         if not snapshot.vent_available:
             return Decision(Mode.NO_COOLING_AVAILABLE, "VENT_UNAVAILABLE", urgent=urgent)
@@ -30,6 +30,10 @@ def choose(snapshot: Snapshot, config: Config, *, max_age: float,
     ac_ok = (tout > config.ac_hard_min and snapshot.ac_available
              and snapshot.ac_fault_allows_operation and not snapshot.ac_ineffective)
     vent_ok = snapshot.vent_available and not snapshot.vent_ineffective
+    # Thermal recovery takes priority over seasonal economy. This does not
+    # label the fan as broken or discard it when AC cannot run.
+    if urgent and ac_ok:
+        return Decision(Mode.AIR_CONDITIONING, "THERMAL_RESERVE_AC", urgent=True)
     if snapshot.current is Mode.AIR_CONDITIONING and ac_ok:
         if tout <= config.ac_to_vent and vent_ok:
             return Decision(Mode.VENTILATION, "OUTDOOR_VENT_THRESHOLD", urgent=urgent)

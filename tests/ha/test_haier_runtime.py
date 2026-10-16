@@ -309,12 +309,13 @@ class HaierRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.runtime.executor.step.complete)
         self.assertNotEqual(self.runtime.executor.last_command["status"], "confirmed")
 
-    async def test_conflict_recovery_keeps_compressor_delay(self):
+    async def test_conflict_recovery_ignores_legacy_compressor_delay(self):
         await self.conflict_setup()
         self.runtime.data["minimum_ac_off"] = 180
         await self.recovery_frame(mode="FAN_ONLY")
-        self.assertEqual(len(self.calls), 1)
-        self.assertEqual(self.runtime.executor.step.phase, "WAIT_AC_MINIMUM_OFF")
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(self.calls[-1][2]["hvac_mode"], "cool")
+        self.assertEqual(self.runtime.executor.step.phase, "WAIT_READBACK")
 
     async def test_conflict_recovery_does_not_bypass_fault_or_manual_off(self):
         await self.conflict_setup()

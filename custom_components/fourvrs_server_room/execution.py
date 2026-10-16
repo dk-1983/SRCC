@@ -22,8 +22,7 @@ class Executor:
         self.target = None
         self.generation = 0
         self.last_power = None
-        self.last_ac_mode = None
-        self.last_off = monotonic()
+        self.committed_mode = None
         self.timing = None
         self.wait_details = {}
         self.last_command = None
@@ -42,7 +41,7 @@ class Executor:
             self.runtime.haier.command_error_detail = None
         self.runtime.vent_failed = False
         self.planner, self.target = None, None
-        self.last_off = monotonic()
+        self.committed_mode = None
         self.timing = TimingGate(condition_hold=self.runtime.data["condition_hold"],
                                  minimum_dwell=self.runtime.data["minimum_dwell"])
         self.runtime.telemetry.record("automation_enabled")
@@ -148,16 +147,12 @@ class Executor:
                         and (self.planner is None or self.planner.pending is None)):
                     self.step = Step("WAIT_HAIER_COMMAND", reason="EXTERNAL_COMMAND_PENDING")
                     return
-                state = replace(state, vent_ineffective=state.vent_ineffective or status.trend.ineffective is True)
+                state = replace(state, thermal_critical=status.alarm.thermal_critical,
+                                vent_ineffective=state.vent_ineffective or status.trend.ineffective is True)
                 selected = status.temperature.sample
                 if selected is not None:
                     state = replace(state, tin=selected)
                 now = state.now
-                ac_mode = state.ac_mode.value if state.ac_mode.fresh(now, self.runtime.data["max_age"]) else None
-                if ac_mode != self.last_ac_mode:
-                    if ac_mode != "cool":
-                        self.last_off = now
-                    self.last_ac_mode = ac_mode
                 target = status.decision.desired
                 # A policy/power change must not erase an unresolved command.
                 if (self.planner and self.planner.pending is not None
@@ -198,11 +193,15 @@ class Executor:
                 # Returning mains may auto-start AC. Do not dwell while
                 # reconciling unknown/conflicting equipment, or on battery.
                 reconcile = self.runtime.reported_mode in ("unknown", "conflict") or state.power is Power.BATTERY
-                # Maintaining a confirmed AC mode is not a seasonal change.
+                # Maintaining a confirmed cooling mode is not a seasonal change.
                 # Recheck every launch/readback guard, but do not delay a
                 # setpoint correction or report WAIT_TIMING for an achieved goal.
-                maintaining_ac = target is Mode.AIR_CONDITIONING and state.current is Mode.AIR_CONDITIONING
-                allowed = timing.allowed or reconcile or maintaining_ac
+                maintaining = target is state.current
+                # Confirmed idle is not an active cooling method to preserve.
+                # Restore cooling without seasonal optimization delays.
+                restoring = state.current is Mode.IDLE and target in (
+                    Mode.AIR_CONDITIONING, Mode.VENTILATION, Mode.EMERGENCY_VENTILATION)
+                allowed = timing.allowed or reconcile or maintaining or restoring
                 previous_pending = self.planner.pending
                 pending_since = self.planner.sent_at
                 self.step = self.planner.advance(state, target, automatic=True,
@@ -224,18 +223,14 @@ class Executor:
                     raise HomeAssistantError(self.planner.error)
                 if self.step.complete:
                     if not getattr(self.planner, "committed", False):
-                        self.timing.confirmed(now=now)
+                        if self.committed_mode is not target:
+                            self.timing.confirmed(now=now)
+                            self.committed_mode = target
                         self.planner.committed = True
                     return
                 action = self.step.action
                 if action is None:
                     return
-                if action in (Action.AC_COOL, Action.AC_SET_TARGET) and ac_mode != "cool":
-                    if now - self.last_off < self.runtime.data["minimum_ac_off"]:
-                        self.planner.pending = None
-                        self.wait_details = {"ac_off_remaining_s": round(self.runtime.data["minimum_ac_off"] - (now - self.last_off), 1)}
-                        self.step = Step("WAIT_AC_MINIMUM_OFF")
-                        return
                 if not self.enabled or generation != self.generation or self.runtime.stopped:
                     return
                 await self._send(action)

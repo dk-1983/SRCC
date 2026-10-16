@@ -143,6 +143,7 @@ class Snapshot:
     ac_fault: bool | None = None
     vent_ineffective: bool = False
     ac_ineffective: bool = False
+    thermal_critical: bool = False
     current: Mode | None = None
 
     # Unassigned optional fault input differs from a configured input with lost data.

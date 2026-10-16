@@ -123,7 +123,7 @@ class VoiceProjectionTests(unittest.TestCase):
         self.assertEqual(self.p.update(self.rt)[0]["action_deferred"]["level"], "ERROR")
 
     def test_normal_wait_info_once_and_fault_wait_warning(self):
-        for phase in ("WAIT_TIMING", "WAIT_AC_MINIMUM_OFF"):
+        for phase in ("WAIT_TIMING",):
             self.rt.executor.step = Step(phase)
             current, notices = self.p.update(self.rt)
             self.assertNotIn("action_deferred", current)

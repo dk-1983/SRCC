@@ -186,7 +186,8 @@ class TransitionPlanner:
             return Step("BLOCKED", reason="AC_REQUIRES_MAINS")
         if not snapshot.ac_available or not snapshot.ac_fault_allows_operation or snapshot.ac_ineffective:
             return Step("BLOCKED", reason="AC_UNAVAILABLE")
-        if (tout < 0 and not snapshot.vent_ineffective and snapshot.vent_available
+        if (tout < 0 and not snapshot.thermal_critical and tin < self.config.critical_on
+                and not snapshot.vent_ineffective and snapshot.vent_available
                 and not snapshot.proved(snapshot.ac_mode, "cool", self.max_age)):
             return Step("BLOCKED", reason="NEGATIVE_TEMPERATURE_RESERVE_ONLY")
         if self.live_target_updates and not snapshot.proved(snapshot.ac_mode, "cool", self.max_age):
