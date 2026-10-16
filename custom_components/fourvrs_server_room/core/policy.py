@@ -42,8 +42,8 @@ def choose(snapshot: Snapshot, config: Config, *, max_age: float,
             and vent_ok and ac_ok):
         return Decision(Mode.VENTILATION, "INITIAL_VENT_SELECTED", urgent=urgent)
     if vent_ok and tout < config.vent_to_ac:
-        # Critical temperature triggers immediate reevaluation, not an invented
-        # claim that an otherwise healthy fan has failed.
+        # Keep usable ventilation when AC cannot run; thermal urgency is
+        # not evidence that the fan itself has failed.
         return Decision(Mode.VENTILATION, "OUTDOOR_VENT_SELECTED", urgent=urgent)
     if ac_ok:
         if tout >= config.vent_to_ac or snapshot.vent_ineffective or not snapshot.vent_available:
