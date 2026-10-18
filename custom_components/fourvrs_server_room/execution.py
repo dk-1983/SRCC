@@ -74,7 +74,7 @@ class Executor:
     def _new_planner(self):
         data = self.runtime.data
         return TransitionPlanner(core_config(data), max_age=data["max_age"],
-                                 timeout=data["command_timeout"], ac_target=data["ac_target"],
+                                 timeout=data["command_timeout"], ac_target=self.runtime.active_ac_target,
                                  manual_fan=True, live_target_updates=True,
                                  ac_readback_timeout=(data.get("haier_readback_timeout", 35.0) if self.runtime.haier
                                                       else data.get("ac_readback_timeout", 3.0)))
@@ -156,7 +156,8 @@ class Executor:
                 target = status.decision.desired
                 # A policy/power change must not erase an unresolved command.
                 if (self.planner and self.planner.pending is not None
-                        and (target != self.target or state.power != self.last_power)):
+                        and (target != self.target or state.power != self.last_power
+                             or self.planner.ac_target != self.runtime.active_ac_target)):
                     pending = self.planner.pending
                     elapsed = now - self.planner.sent_at
                     if self.planner._confirmed(state, pending, self.planner.sent_at):
@@ -185,7 +186,8 @@ class Executor:
                             raise HomeAssistantError("READBACK_TIMEOUT")
                     self.step = Step("BLOCKED", reason=status.decision.reason)
                     return
-                if target != self.target or self.planner is None:
+                if (target != self.target or self.planner is None
+                        or self.planner.ac_target != self.runtime.active_ac_target):
                     self.planner = self._new_planner()
                     self.target = target
                 timing = self.timing.update(target, now=now, urgent=status.decision.urgent)
@@ -269,7 +271,7 @@ class Executor:
             else:
                 # Separate mode and temperature commands; each has its own
                 # readback. Some upstream drivers do not apply both at once.
-                target = data["ac_target"]
+                target = self.planner.ac_target
                 if rt.hass.config.units.temperature_unit == "°F":
                     target = target * 9 / 5 + 32
                 state = rt.hass.states.get(entity_id)
@@ -295,7 +297,8 @@ class Executor:
         event = rt.telemetry.record("command_sent", action=action.value, role=role,
                                     service=domain + "." + service, parameters=parameters)
         self.last_command = {"sequence": event["sequence"], "time": event["time"],
-                             "action": action.value, "role": role, "status": "sent"}
+                             "action": action.value, "role": role, "status": "sent",
+                             "target": self.planner.ac_target if role == "climate" else None}
         try:
             async with asyncio.timeout(data["command_timeout"]):
                 await rt.hass.services.async_call(domain, service, payload, blocking=True)

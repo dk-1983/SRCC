@@ -312,6 +312,62 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ConfigurationError):
                 validate(settings(rack_recovery_offset=offset))
 
+    async def test_critical_boost_is_fixed_and_normal_target_returns_after_recovery(self):
+        self.hvac.update(current_temperature=21.5, target_temp_step=1)
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        self.hass.states.async_set("sensor.tin", "28", {"unit_of_measurement": "°C"})
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.calls[-1][2]["temperature"], 20)
+        self.assertEqual(self.runtime.data["ac_target"], 22)
+        self.assertTrue(self.runtime.executor.step.complete)
+        count = len(self.calls)
+        state = self.hass.states.get("climate.ac")
+        self.hass.states.async_set("climate.ac", "cool", dict(state.attributes, current_temperature=19))
+        await self.settle()
+        self.assertEqual(len(self.calls), count)
+        self.assertEqual(self.runtime.active_ac_target, 20)
+        self.hass.states.async_set("sensor.tin", "22", {"unit_of_measurement": "°C"})
+        await self.settle()
+        self.assertEqual(self.calls[-1][2]["temperature"], 22)
+        self.assertEqual(len(self.calls), count + 1)
+        self.assertTrue(self.runtime.observer.reserve_hold)
+
+    async def test_boost_restore_waits_for_outstanding_readback(self):
+        self.hvac.update(current_temperature=21.5, target_temp_step=1)
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        self.hass.states.async_set("sensor.tin", "28", {"unit_of_measurement": "°C"})
+        self.feedback = False
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.calls[-1][2]["temperature"], 20)
+        self.hass.states.async_set("sensor.tin", "22", {"unit_of_measurement": "°C"})
+        await self.settle()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.runtime.executor.step.phase, "WAIT_READBACK")
+        self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, temperature=20))
+        await self.settle()
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(self.calls[-1][2]["temperature"], 22)
+
+    async def test_boost_converts_fahrenheit_limits_and_step(self):
+        from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+        self.hass.config.units = US_CUSTOMARY_SYSTEM
+        self.hvac.update(temperature=71.6, current_temperature=70.7,
+                         min_temp=60, max_temp=86, target_temp_step=1)
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        self.hass.states.async_set("sensor.tin", "28", {"unit_of_measurement": "°C"})
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertAlmostEqual(self.calls[-1][2]["temperature"], 68)
+        self.assertAlmostEqual(self.runtime.active_ac_target, 20)
+
     async def test_recovery_ignores_ac_inlet_and_holds_ac_after_rack_recovery(self):
         self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, current_temperature=23))
         self.hass.states.async_set("sensor.tin", "28", {"unit_of_measurement": "°C"})

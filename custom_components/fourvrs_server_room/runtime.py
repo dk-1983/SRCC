@@ -44,6 +44,7 @@ class Runtime:
         self.demand = None
         self.vent_failed = False
         self.input_status = {}
+        self.emergency_ac_target = None
         from .telemetry import Telemetry
         self.telemetry = Telemetry()
         from .execution import Executor
@@ -53,6 +54,30 @@ class Runtime:
         self.haier_result_ready = False
         from .voice import ProcessVoice
         self.voice = ProcessVoice(self)
+
+    @property
+    def active_ac_target(self):
+        return self.emergency_ac_target if self.emergency_ac_target is not None else self.data.get("ac_target", 22.0)
+
+    def _update_emergency_target(self, state, climate_state):
+        previous = self.emergency_ac_target
+        if not self.status.alarm.thermal_critical:
+            self.emergency_ac_target = None
+        elif self.emergency_ac_target is None and climate_state is not None:
+            measured = state.ac_temperature.temperature(state.now, self.data["max_age"]) if state.ac_temperature else None
+            attrs = climate_state.attributes
+            minimum, maximum, step = (attrs.get(k) for k in ("min_temp", "max_temp", "target_temp_step"))
+            # No invented device limits or resolution. Missing metadata leaves
+            # normal cooling intact and can be supplied by a later publication.
+            if self.hass.config.units.temperature_unit == "°F":
+                minimum = (minimum - 32) * 5 / 9 if type(minimum) in (int, float) else None
+                maximum = (maximum - 32) * 5 / 9 if type(maximum) in (int, float) else None
+                step = step * 5 / 9 if type(step) in (int, float) else None
+            from .core.boost import emergency_target
+            self.emergency_ac_target = emergency_target(self.data.get("ac_target", 22.0), measured, minimum, maximum, step)
+        if previous != self.emergency_ac_target:
+            self.telemetry.record("emergency_ac_target", active=self.emergency_ac_target is not None,
+                                  target=self.active_ac_target, normal_target=self.data.get("ac_target", 22.0))
 
     async def _save_reserve(self):
         async with self.reserve_lock:
@@ -269,6 +294,7 @@ class Runtime:
             self.demand = state.proved(state.vent_output, True, age)
         self.status = self.observer.evaluate(state, backups=self.backups, cooling_required=self.demand,
                                              other_critical=self.reported_mode == "conflict" and not self.executor.enabled)
+        self._update_emergency_target(state, climate_state)
         if self.observer.reserve_hold != self._saved_reserve:
             self._saved_reserve = self.observer.reserve_hold
             self.reserve_task = self.hass.async_create_task(self._save_reserve())

@@ -194,7 +194,7 @@ class VoiceProjection:
                 self.mode = mode
         if self.initialized and new_command and command.get("action") == "ac_set_target":
             notices.append(dict(key="target_restored", level="INFO", active=False, resolved=False,
-                message=f"Подтверждена уставка кондиционера {runtime.data['ac_target']:g} градусов."))
+                message=f"Подтверждена уставка кондиционера {command.get('target', runtime.data['ac_target']):g} градусов."))
         if complete_command:
             self.command_sequence = command.get("sequence")
         self.initialized = True

@@ -7,6 +7,8 @@ async def async_get_config_entry_diagnostics(hass, entry):
     status = runtime.status
     return {
         "version": VERSION,
+        "active_ac_target": runtime.active_ac_target,
+        "emergency_ac_target": runtime.emergency_ac_target,
         "thermal_recovery": {
             "basis": "rack_temperature",
             "rack_target": min(runtime.observer.config.critical_recovery, runtime.observer.ac_target + runtime.observer.config.rack_recovery_offset),
