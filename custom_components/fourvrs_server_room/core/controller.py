@@ -30,6 +30,7 @@ class Observer:
                  fallback: Fallback = Fallback.MEAN_ALLOW_ONE, ac_target: float = 22.0):
         self.config, self.max_age = config, max_age
         self.ac_target = ac_target
+        self.reserve_hold = False
         self.fallback, self.backup_max_skew = fallback, backup_max_skew
         self.alarm = TemperatureAlarm(config, max_age=max_age, max_gap=recovery_max_gap)
         self.trend = VentilationTrend(config, max_age=max_age, tolerance=sample_tolerance)
@@ -47,7 +48,15 @@ class Observer:
                   and snapshot.proved(snapshot.vent_enabled, True, self.max_age)
                   and snapshot.proved(snapshot.vent_output, True, self.max_age))
         trend = self.trend.update(temperature, now=snapshot.now, active=active)
+        # A thermal incident is not forgotten just because AC cooled the rack.
+        value = temperature.temperature(snapshot.now, self.max_age)
+        warming_at_warning = (active and trend.ready and trend.rate_per_minute > 0
+                              and trend.change > 0 and self.config.warning_on is not None
+                              and value is not None and value >= self.config.warning_on)
+        if alarm.thermal_critical or warming_at_warning:
+            self.reserve_hold = True
         state = replace(snapshot, tin=temperature, thermal_critical=alarm.thermal_critical,
+                        reserve_hold=self.reserve_hold,
                         vent_ineffective=snapshot.vent_ineffective or trend.ineffective is True)
         decision = choose(state, self.config, max_age=self.max_age, cooling_required=cooling_required)
         warnings = tuple(f"BACKUP_UNAVAILABLE:{source}" for source in selected.warning_sources)

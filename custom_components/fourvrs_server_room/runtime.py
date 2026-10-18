@@ -22,6 +22,10 @@ class Runtime:
         self.hass, self.entry, self.data = hass, entry, data
         self.control_store = Store(hass, 1, f"fourvrs_server_room.{entry.entry_id}.control")
         self.control_lock = asyncio.Lock()
+        self.reserve_store = Store(hass, 1, f"fourvrs_server_room.{entry.entry_id}.reserve")
+        self._saved_reserve = False
+        self.reserve_task = None
+        self.reserve_lock = asyncio.Lock()
         self._clock_anchor = monotonic()
         self._wall_anchor = dt_util.utcnow()
         self.observer = Observer(core_config(data), max_age=data["max_age"],
@@ -50,7 +54,14 @@ class Runtime:
         from .voice import ProcessVoice
         self.voice = ProcessVoice(self)
 
+    async def _save_reserve(self):
+        async with self.reserve_lock:
+            await self.reserve_store.async_save({"hold": self.observer.reserve_hold})
+
     async def async_prepare(self):
+        saved = await self.reserve_store.async_load()
+        self.observer.reserve_hold = isinstance(saved, dict) and saved.get("hold") is True
+        self._saved_reserve = self.observer.reserve_hold
         await self.voice.async_restore()
         if not self.haier:
             return
@@ -86,6 +97,10 @@ class Runtime:
                 self.executor.disable()
             await self.control_store.async_save({"enabled": enabled})
             if enabled and not self.stopped:
+                # An explicit OFF -> ON permits a supervised ventilation retry.
+                # Automatic restoration after restart does not clear the hold.
+                if not self.executor.enabled:
+                    self.observer.reserve_hold = False
                 self.executor.enable()
 
     async def async_restore_control(self):
@@ -254,6 +269,10 @@ class Runtime:
             self.demand = state.proved(state.vent_output, True, age)
         self.status = self.observer.evaluate(state, backups=self.backups, cooling_required=self.demand,
                                              other_critical=self.reported_mode == "conflict" and not self.executor.enabled)
+        if self.observer.reserve_hold != self._saved_reserve:
+            self._saved_reserve = self.observer.reserve_hold
+            self.reserve_task = self.hass.async_create_task(self._save_reserve())
+            self.telemetry.record("vent_retry_hold", active=self.observer.reserve_hold)
         if self.status.trend.ineffective is True:
             self.vent_failed = True
         self.input_status = {}

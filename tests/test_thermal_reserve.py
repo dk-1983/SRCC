@@ -10,6 +10,29 @@ from custom_components.fourvrs_server_room.core.transitions import Action, Trans
 
 
 class ThermalReserveTests(unittest.TestCase):
+    def test_warning_and_rising_ventilation_locks_retry_before_critical(self):
+        observer = Observer(Config(), max_age=70, recovery_max_gap=70,
+                            sample_tolerance=5, backup_max_skew=5)
+        for now in (0, 60, 120, 180, 240, 300):
+            result = observer.evaluate(snapshot(now, tin=temp(25.5 + now/300, now),
+                tout=temp(-4, now), vent_enabled=temp(True, now), vent_output=temp(True, now)))
+        self.assertFalse(result.alarm.thermal_critical)
+        self.assertEqual(result.decision.reason, "VENT_RETRY_LOCKED")
+        self.assertTrue(result.decision.urgent)
+        result = observer.evaluate(snapshot(301, tin=temp(22, 301), tout=temp(-4, 301)))
+        self.assertEqual(result.decision.desired, Mode.AIR_CONDITIONING)
+        result = observer.evaluate(snapshot(302, tin=temp(25, 302), tout=temp(-4, 302), ac_available=False))
+        self.assertEqual(result.decision.desired, Mode.VENTILATION)
+
+    def test_rack_offset_is_in_degrees_and_inlet_is_irrelevant(self):
+        from custom_components.fourvrs_server_room.core.severity import TemperatureAlarm
+        alarm = TemperatureAlarm(Config(rack_recovery_offset=2), max_age=60, max_gap=60)
+        alarm.update(temp(28), now=0, ac_target=22)
+        self.assertTrue(alarm.update(temp(24.1, 1), now=1, ac_target=22,
+                                    ac_temperature=temp(16.5, 1)).thermal_critical)
+        self.assertFalse(alarm.update(temp(24, 2), now=2, ac_target=22,
+                                     ac_temperature=None).thermal_critical)
+
     def test_negative_seasonal_thresholds_and_inclusive_hard_limit(self):
         config = Config(ac_hard_min=-15, ac_to_vent=-4, vent_to_ac=-2)
         for current, outside, expected in (
@@ -37,9 +60,10 @@ class ThermalReserveTests(unittest.TestCase):
             self.assertEqual(result.decision.desired, Mode.AIR_CONDITIONING)
             self.assertEqual(result.decision.reason, "THERMAL_RESERVE_AC")
             self.assertTrue(result.decision.urgent)
-        result = observer.evaluate(snapshot(240, tin=temp(26.5, 240), tout=temp(-1, 240), ac_temperature=temp(22, 240)))
+        result = observer.evaluate(snapshot(240, tin=temp(22, 240), tout=temp(-1, 240), ac_temperature=temp(22, 240)))
         self.assertFalse(result.alarm.thermal_critical)
-        self.assertEqual(result.decision.desired, Mode.VENTILATION)
+        self.assertEqual(result.decision.desired, Mode.AIR_CONDITIONING)
+        self.assertEqual(result.decision.reason, "VENT_RETRY_LOCKED")
 
     def test_unavailable_or_cold_ac_does_not_discard_working_ventilation(self):
         for changes in ({"ac_available": False}, {"ac_fault": True}, {"tout": temp(-16)}):

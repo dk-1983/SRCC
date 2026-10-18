@@ -48,7 +48,8 @@
           "voice_info": "Voice INFO messages",
           "voice_warning": "Voice WARNING messages",
           "voice_error": "Voice ERROR messages",
-          "voice_repeat": "Repeat active ERROR through the center"
+          "voice_repeat": "Repeat active ERROR through the center",
+          "rack_recovery_offset": "Rack recovery offset above AC setpoint"
         }
       }
     },
@@ -123,7 +124,8 @@
           "voice_info": "Voice INFO messages",
           "voice_warning": "Voice WARNING messages",
           "voice_error": "Voice ERROR messages",
-          "voice_repeat": "Repeat active ERROR through the center"
+          "voice_repeat": "Repeat active ERROR through the center",
+          "rack_recovery_offset": "Rack recovery offset above AC setpoint"
         }
       }
     },

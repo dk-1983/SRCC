@@ -1,4 +1,4 @@
-"""Critical rack latch with measured AC setpoint recovery."""
+"""Recovery uses the protected rack temperature, never the AC inlet sensor."""
 from dataclasses import dataclass
 from math import isfinite
 from .models import Config, Sample, Severity
@@ -31,13 +31,10 @@ class TemperatureAlarm:
         if value >= self.config.critical_on:
             self.critical = True
             self.entered_at = now
-        actual = ac_temperature.temperature(now, self.max_age) if ac_temperature else None
-        recovered = (self.critical and value <= self.config.critical_recovery
-                     and actual is not None and ac_target is not None
-                     and isfinite(ac_target) and actual <= ac_target
-                     and self.entered_at is not None
-                     and sample.measured_at > self.entered_at
-                     and ac_temperature.measured_at > self.entered_at)
+        recovery_target = (min(self.config.critical_recovery, ac_target + self.config.rack_recovery_offset)
+                           if ac_target is not None and isfinite(ac_target) else None)
+        recovered = (self.critical and recovery_target is not None and value <= recovery_target
+                     and self.entered_at is not None and sample.measured_at > self.entered_at)
         if recovered:
             self.critical = False
             self.entered_at = None

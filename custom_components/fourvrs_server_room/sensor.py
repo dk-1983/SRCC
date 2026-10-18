@@ -54,9 +54,10 @@ class SrccSensor(SrccEntity, SensorEntity):
                     "execution_reason": self.runtime.executor.step.reason, "execution_error": self.runtime.executor.error, "blockers": list(status.decision.blockers),
                     "urgent": status.decision.urgent,
                     "last_command": self.runtime.executor.last_command,
-                    "recovery_basis": "ac_temperature_and_rack",
+                    "recovery_basis": "rack_temperature",
                     "ac_measured_temperature": self.runtime.snapshot.ac_temperature.temperature(self.runtime.snapshot.now, self.runtime.data["max_age"]) if self.runtime.snapshot.ac_temperature else None,
-                    "ac_recovery_target": self.runtime.observer.ac_target,
+                    "rack_recovery_target": min(self.runtime.observer.config.critical_recovery, self.runtime.observer.ac_target + self.runtime.observer.config.rack_recovery_offset),
+                    "vent_retry_locked": self.runtime.observer.reserve_hold,
                     "rack_recovery_limit": self.runtime.observer.config.critical_recovery,
                     "input_issues": [role for role, item in self.runtime.input_status.items() if item["quality"] != "valid"]}
         if self.key == "temperature_source":

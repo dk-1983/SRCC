@@ -40,6 +40,13 @@ def validate(data: dict) -> dict:
         if (not isinstance(topic, str) or not topic or len(topic) > 256
                 or any(c in topic for c in ("+", "#", "\x00")) or not topic.endswith("/result")):
             raise ConfigurationError("invalid_haier_result_topic")
+    target = result.get("ac_target", 22.0)
+    offset = result.get("rack_recovery_offset", 0.0)
+    warning = result.get("warning_on", 26.0)
+    if (type(target) not in (int, float) or type(offset) not in (int, float)
+            or not isfinite(target) or not isfinite(offset) or offset < 0
+            or (warning is not None and type(warning) in (int, float) and target + offset >= warning)):
+        raise ConfigurationError("invalid_thresholds")
     selected = []
     for role, domains in ENTITY_ROLES.items():
         if role not in result:

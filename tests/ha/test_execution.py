@@ -287,7 +287,32 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(validate(schema()(data))["vent_to_ac"], -2)
         self.assertNotIn("recovery_hold", validate(dict(data, recovery_hold=120)))
 
-    async def test_recovery_uses_measured_ac_temperature_and_separate_rack_limit(self):
+    async def test_reserve_hold_survives_reload_and_needs_explicit_retry(self):
+        from unittest.mock import AsyncMock
+        self.runtime.observer.reserve_hold = True
+        self.runtime.refresh()
+        await self.settle()
+        stored = await self.runtime.reserve_store.async_load()
+        self.assertEqual(stored, {"hold": True})
+        other = Runtime(self.hass, SimpleNamespace(entry_id="test"), self.runtime.data)
+        other.voice.async_restore = AsyncMock()
+        await other.async_prepare()
+        self.assertTrue(other.observer.reserve_hold)
+        self.hass.states.async_set("sensor.tin", "22", {"unit_of_measurement": "°C"})
+        await self.settle()
+        await self.runtime.async_set_control(False)
+        await self.runtime.async_set_control(True)
+        await self.settle()
+        self.assertFalse(self.runtime.observer.reserve_hold)
+
+    async def test_recovery_offset_cannot_reach_warning(self):
+        from custom_components.fourvrs_server_room.configuration import ConfigurationError
+        self.assertEqual(validate(settings(rack_recovery_offset=2))["rack_recovery_offset"], 2)
+        for offset in (-1, 4, float("nan")):
+            with self.assertRaises(ConfigurationError):
+                validate(settings(rack_recovery_offset=offset))
+
+    async def test_recovery_ignores_ac_inlet_and_holds_ac_after_rack_recovery(self):
         self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, current_temperature=23))
         self.hass.states.async_set("sensor.tin", "28", {"unit_of_measurement": "°C"})
         await self.settle()
@@ -296,9 +321,13 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         await self.settle()
         # Target is already 22, but measured air remains warmer.
         self.assertTrue(self.runtime.status.alarm.thermal_critical)
-        self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, current_temperature=22))
+        self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, current_temperature=16.5))
+        await self.settle()
+        self.assertTrue(self.runtime.status.alarm.thermal_critical)
+        self.hass.states.async_set("sensor.tin", "22", {"unit_of_measurement": "°C"})
         await self.settle()
         self.assertFalse(self.runtime.status.alarm.thermal_critical)
+        self.assertTrue(self.runtime.observer.reserve_hold)
         self.assertEqual(self.calls, [])
 
     async def test_ac_measured_temperature_is_converted_from_fahrenheit(self):
@@ -323,7 +352,7 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.calls[1][2]["entity_id"], "switch.fan")
 
     async def test_out_of_range_target_blocks_ac_command(self):
-        self.runtime.data["ac_target"] = 40
+        self.runtime.data["ac_target"] = 15
         self.runtime.executor.enable()
         await self.settle()
         self.assertEqual(self.runtime.executor.error, "AC_TARGET_OUT_OF_RANGE")

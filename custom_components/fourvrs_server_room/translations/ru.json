@@ -48,7 +48,8 @@
           "voice_info": "Голосовые сообщения INFO",
           "voice_warning": "Голосовые предупреждения WARNING",
           "voice_error": "Голосовые ошибки ERROR",
-          "voice_repeat": "Повторять активные ERROR через центр"
+          "voice_repeat": "Повторять активные ERROR через центр",
+          "rack_recovery_offset": "Поправка температуры стойки к уставке AC для восстановления"
         }
       }
     },
@@ -123,7 +124,8 @@
           "voice_info": "Голосовые сообщения INFO",
           "voice_warning": "Голосовые предупреждения WARNING",
           "voice_error": "Голосовые ошибки ERROR",
-          "voice_repeat": "Повторять активные ERROR через центр"
+          "voice_repeat": "Повторять активные ERROR через центр",
+          "rack_recovery_offset": "Поправка температуры стойки к уставке AC для восстановления"
         }
       }
     },

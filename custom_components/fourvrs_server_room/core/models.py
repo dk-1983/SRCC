@@ -74,6 +74,7 @@ class Config:
     ac_to_vent: float = -1.0
     critical_on: float = 28.0
     critical_recovery: float = 27.0
+    rack_recovery_offset: float = 0.0
     sample_interval: float = 60.0
     vent_observation: float = 300.0
     vent_samples: int = 5
@@ -97,6 +98,8 @@ class Config:
             raise ValueError("critical recovery must be below critical entry")
         if self.warning_on is not None and self.warning_on >= self.critical_on:
             raise ValueError("warning must be below critical")
+        if self.rack_recovery_offset < 0:
+            raise ValueError("rack recovery offset must be nonnegative")
         if self.sample_interval <= 0:
             raise ValueError("durations must be positive")
         if not isinstance(self.vent_samples, int) or self.vent_samples < 3:
@@ -137,6 +140,7 @@ class Snapshot:
     vent_ineffective: bool = False
     ac_ineffective: bool = False
     thermal_critical: bool = False
+    reserve_hold: bool = False
     ac_temperature: Sample[float] | None = None
     current: Mode | None = None
 

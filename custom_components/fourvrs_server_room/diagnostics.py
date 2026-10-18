@@ -8,8 +8,9 @@ async def async_get_config_entry_diagnostics(hass, entry):
     return {
         "version": VERSION,
         "thermal_recovery": {
-            "basis": "ac_temperature_and_rack",
-            "ac_target": runtime.observer.ac_target,
+            "basis": "rack_temperature",
+            "rack_target": min(runtime.observer.config.critical_recovery, runtime.observer.ac_target + runtime.observer.config.rack_recovery_offset),
+            "vent_retry_locked": runtime.observer.reserve_hold,
             "rack_limit": runtime.observer.config.critical_recovery,
             "ac_temperature": (runtime.snapshot.ac_temperature.temperature(
                 runtime.snapshot.now, runtime.data["max_age"])

@@ -31,6 +31,8 @@ class VoiceProjection:
         elif "temperature_high" in old:
             # Lost measurement is not proof of thermal recovery.
             issues["temperature_high"] = old["temperature_high"]
+        if getattr(getattr(runtime, "observer", None), "reserve_hold", False):
+            issues["vent_retry_locked"] = issue("WARNING", "После перегрева или роста температуры на вентиляции автоматический возврат на неё заблокирован. При доступности используется кондиционер. Повторная проверка вентиляции разрешается вручную.")
         recovery_messages = {}
         now = state.now
         selected = status.temperature

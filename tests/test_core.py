@@ -88,7 +88,7 @@ class AlarmTests(unittest.TestCase):
     def test_measured_target_recovers_without_timer(self):
         alarm = self.alarm()
         alarm.update(temp(28), now=0)
-        result = alarm.update(temp(27, 1), now=1, ac_temperature=temp(22, 1), ac_target=22)
+        result = alarm.update(temp(22, 1), now=1, ac_temperature=temp(30, 1), ac_target=22)
         self.assertFalse(result.thermal_critical)
 
     def test_cool_ac_does_not_hide_hot_rack(self):
@@ -97,7 +97,7 @@ class AlarmTests(unittest.TestCase):
         self.assertTrue(alarm.update(temp(27.5, 1), now=1,
                         ac_temperature=temp(21, 1), ac_target=22).thermal_critical)
 
-    def test_stale_missing_or_precritical_ac_cannot_recover(self):
+    def test_ac_temperature_cannot_clear_a_warm_rack(self):
         for sample in (None, temp(22, 0), temp(None, 100)):
             alarm = self.alarm()
             alarm.update(temp(28, 1), now=1)
@@ -113,7 +113,7 @@ class AlarmTests(unittest.TestCase):
     def test_other_critical_survives_temperature_recovery(self):
         alarm = self.alarm()
         alarm.update(temp(28), now=0)
-        result = alarm.update(temp(26, 1), now=1, other_critical=True,
+        result = alarm.update(temp(22, 1), now=1, other_critical=True,
                               ac_temperature=temp(22, 1), ac_target=22)
         self.assertFalse(result.thermal_critical)
         self.assertEqual(result.severity, Severity.CRITICAL)

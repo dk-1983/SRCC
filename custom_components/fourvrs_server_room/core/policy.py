@@ -34,6 +34,9 @@ def choose(snapshot: Snapshot, config: Config, *, max_age: float,
     # label the fan as broken or discard it when AC cannot run.
     if urgent and ac_ok:
         return Decision(Mode.AIR_CONDITIONING, "THERMAL_RESERVE_AC", urgent=True)
+    if snapshot.reserve_hold and ac_ok:
+        return Decision(Mode.AIR_CONDITIONING, "VENT_RETRY_LOCKED",
+                        urgent=config.warning_on is not None and tin >= config.warning_on)
     if snapshot.current is Mode.AIR_CONDITIONING and ac_ok:
         if tout <= config.ac_to_vent and vent_ok:
             return Decision(Mode.VENTILATION, "OUTDOOR_VENT_THRESHOLD", urgent=urgent)
