@@ -34,6 +34,8 @@ class VoiceProjection:
         if getattr(getattr(runtime, "observer", None), "reserve_hold", False):
             issues["vent_retry_locked"] = issue("WARNING", "После перегрева или роста температуры на вентиляции автоматический возврат на неё заблокирован. При доступности используется кондиционер. Повторная проверка вентиляции разрешается вручную.")
         recovery_messages = {}
+        if getattr(getattr(runtime, "adaptation", None), "limit_reported", False):
+            issues["adaptation_limit"] = issue("WARNING", "Уставка кондиционера достигла нижнего предела. Дальнейшее автоматическое снижение невозможно.")
         now = state.now
         selected = status.temperature
         for role, item in runtime.input_status.items():
@@ -194,7 +196,9 @@ class VoiceProjection:
                 self.mode = mode
         if self.initialized and new_command and command.get("action") == "ac_set_target":
             notices.append(dict(key="target_restored", level="INFO", active=False, resolved=False,
-                message=f"Подтверждена уставка кондиционера {command.get('target', runtime.data['ac_target']):g} градусов."))
+                message=(f"Из-за предупредительной температуры стойки уставка кондиционера снижена с {command['adapted_from']:g} до {command['target']:g} градусов и сохранена в настройках."
+                         if "adapted_from" in command else
+                         f"Подтверждена уставка кондиционера {command.get('target', runtime.data['ac_target']):g} градусов.")))
         if complete_command:
             self.command_sequence = command.get("sequence")
         self.initialized = True

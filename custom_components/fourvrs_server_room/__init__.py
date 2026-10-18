@@ -29,6 +29,10 @@ async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool
 
 
 async def _options_updated(hass, entry):
+    from .configuration import validate
+    runtime = getattr(entry, "runtime_data", None)
+    if runtime is not None and validate(dict(entry.options or entry.data)) == runtime.data:
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -41,6 +45,8 @@ async def async_unload_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> boo
             await runtime.executor.task
         if runtime.reserve_task is not None:
             await runtime.reserve_task
+        if runtime.adaptation.task is not None:
+            await runtime.adaptation.task
         if runtime.voice.closing_task is not None:
             await runtime.voice.closing_task
     return unloaded

@@ -143,6 +143,13 @@ class HaRuntimeTests(unittest.IsolatedAsyncioTestCase):
                                                    "switch.server_room_climate_controller_"))]
         self.assertEqual(len(entities), 16, [state.entity_id for state in self.hass.states.async_all()])
         loaded_runtime = entry.runtime_data
+        loaded_runtime.adaptation.pending = {"previous": 22, "target": 21}
+        loaded_runtime.adaptation.confirmed(21)
+        await self.hass.async_block_till_done()
+        self.assertIs(entry.runtime_data, loaded_runtime)
+        self.assertFalse(loaded_runtime.stopped)
+        self.assertEqual(entry.options["ac_target"], 21)
+        self.assertEqual(loaded_runtime.data["ac_target"], 21)
         options = settings()
         del options["bolid_temperature_1"]
         del options["bolid_temperature_2"]

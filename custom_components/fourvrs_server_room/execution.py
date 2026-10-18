@@ -165,6 +165,8 @@ class Executor:
                                                       elapsed_s=round(elapsed, 3))
                         if self.last_command:
                             self.last_command = dict(self.last_command, status="confirmed")
+                        if pending is Action.AC_SET_TARGET:
+                            self.runtime.adaptation.confirmed(self.planner.ac_target)
                         self.planner.pending = None
                         if self.runtime.haier:
                             self.runtime.haier.command = None
@@ -215,6 +217,8 @@ class Executor:
                                                   elapsed_s=round(now - pending_since, 3))
                     if self.last_command:
                         self.last_command = dict(self.last_command, status="confirmed")
+                    if previous_pending is Action.AC_SET_TARGET:
+                        self.runtime.adaptation.confirmed(self.planner.ac_target)
                 if self.step.phase == "WAIT_TIMING":
                     self.wait_details = {"condition_remaining_s": round(timing.condition_remaining, 1),
                                          "dwell_remaining_s": round(timing.dwell_remaining, 1)}
@@ -252,6 +256,10 @@ class Executor:
 
     async def _send(self, action):
         rt, data = self.runtime, self.runtime.data
+        if action is Action.AC_SET_TARGET:
+            await rt.adaptation.before_send(self.planner.ac_target)
+            if not self.enabled or rt.stopped:
+                return
         if action in (Action.VENT_DISABLE, Action.VENT_ENABLE):
             entity_id = data["vent_enable"]
             domain = entity_id.split(".")[0]

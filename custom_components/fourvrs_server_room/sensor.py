@@ -60,6 +60,9 @@ class SrccSensor(SrccEntity, SensorEntity):
                     "vent_retry_locked": self.runtime.observer.reserve_hold,
                     "active_ac_target": self.runtime.active_ac_target,
                     "emergency_ac_target": self.runtime.emergency_ac_target,
+                    "adaptation_episode_closed": self.runtime.adaptation.closed,
+                    "adaptation_pending": self.runtime.adaptation.pending,
+                    "boost_recovery_target": self.runtime.boost_recovery_target,
                     "rack_recovery_limit": self.runtime.observer.config.critical_recovery,
                     "input_issues": [role for role, item in self.runtime.input_status.items() if item["quality"] != "valid"]}
         if self.key == "temperature_source":

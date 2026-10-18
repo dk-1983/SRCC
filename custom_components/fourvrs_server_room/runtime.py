@@ -45,6 +45,8 @@ class Runtime:
         self.vent_failed = False
         self.input_status = {}
         self.emergency_ac_target = None
+        from .adaptation import DownwardAdaptation
+        self.adaptation = DownwardAdaptation(self)
         from .telemetry import Telemetry
         self.telemetry = Telemetry()
         from .execution import Executor
@@ -57,18 +59,34 @@ class Runtime:
 
     @property
     def active_ac_target(self):
-        return self.emergency_ac_target if self.emergency_ac_target is not None else self.data.get("ac_target", 22.0)
+        normal = (self.adaptation.pending["target"] if self.adaptation.pending
+                  else self.data.get("ac_target", 22.0))
+        return min(normal, self.emergency_ac_target) if self.emergency_ac_target is not None else normal
+
+    def ac_limits(self, climate_state):
+        minimum, maximum, step = (climate_state.attributes.get(k) for k in ("min_temp", "max_temp", "target_temp_step"))
+        if self.hass.config.units.temperature_unit == "°F":
+            minimum = (minimum - 32) * 5 / 9 if type(minimum) in (int, float) else None
+            maximum = (maximum - 32) * 5 / 9 if type(maximum) in (int, float) else None
+            step = step * 5 / 9 if type(step) in (int, float) else None
+        return minimum, maximum, step
+
+    @property
+    def boost_recovery_target(self):
+        normal = (self.adaptation.pending["target"] if self.adaptation.pending else
+                  self.data.get("ac_target", 22.0))
+        return min(self.observer.config.critical_recovery,
+                   normal + self.observer.config.rack_recovery_offset)
 
     def _update_emergency_target(self, state, climate_state):
         previous = self.emergency_ac_target
         config = self.observer.config
         sample = self.status.temperature.sample
         rack = sample.temperature(state.now, self.data["max_age"]) if sample else None
-        recovery = min(config.critical_recovery,
-                       self.data.get("ac_target", 22.0) + config.rack_recovery_offset)
+        recovery = self.boost_recovery_target
         recovered = rack is not None and rack <= recovery
         requested = (self.status.alarm.thermal_critical
-                     or (rack is not None and config.warning_on is not None and rack > config.warning_on))
+                     or (rack is not None and config.warning_on is not None and rack >= config.warning_on))
         if recovered:
             self.emergency_ac_target = None
         elif (self.emergency_ac_target is None and requested
@@ -95,6 +113,7 @@ class Runtime:
             await self.reserve_store.async_save({"hold": self.observer.reserve_hold})
 
     async def async_prepare(self):
+        await self.adaptation.load()
         saved = await self.reserve_store.async_load()
         self.observer.reserve_hold = isinstance(saved, dict) and saved.get("hold") is True
         self._saved_reserve = self.observer.reserve_hold
@@ -305,6 +324,7 @@ class Runtime:
             self.demand = state.proved(state.vent_output, True, age)
         self.status = self.observer.evaluate(state, backups=self.backups, cooling_required=self.demand,
                                              other_critical=self.reported_mode == "conflict" and not self.executor.enabled)
+        self.adaptation.update(state, climate_state)
         self._update_emergency_target(state, climate_state)
         if self.observer.reserve_hold != self._saved_reserve:
             self._saved_reserve = self.observer.reserve_hold

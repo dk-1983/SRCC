@@ -335,30 +335,92 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.calls), count + 1)
         self.assertTrue(self.runtime.observer.reserve_hold)
 
-    async def test_warning_boost_uses_configured_threshold_and_holds_until_rack_goal(self):
-        from dataclasses import replace
-        self.runtime.observer.config = replace(self.runtime.observer.config, warning_on=25, rack_recovery_offset=1)
-        self.hvac.update(current_temperature=19, target_temp_step=1)
+    async def test_warning_adaptation_persists_once_and_rearms_after_hysteresis(self):
+        self.runtime.entry.data = dict(self.runtime.data)
+        self.runtime.entry.options = {}
+        def update(entry, *, options):
+            entry.options = options
+        self.hass.config_entries = SimpleNamespace(async_update_entry=update)
+        self.hvac.update(current_temperature=24, target_temp_step=1)
         self.hass.states.async_set("number.cdr", "0")
         self.hass.states.async_set("switch.fan", "off")
         self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        self.hass.states.async_set("sensor.tin", "26", {"unit_of_measurement": "°C"})
+        self.feedback = False
         self.runtime.executor.enable()
         await self.settle()
-        self.assertIsNone(self.runtime.emergency_ac_target)  # Exactly WARNING does not trigger.
-        self.hass.states.async_set("sensor.tin", "25.1", {"unit_of_measurement": "°C"})
+        self.assertEqual(self.calls[-1][2]["temperature"], 21)
+        self.assertEqual(self.runtime.data["ac_target"], 22)
+        self.assertEqual(self.runtime.entry.options, {})
+        self.assertEqual(await self.runtime.adaptation.store.async_load(), {"closed": True})
+        self.feedback = True
+        self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, temperature=21))
         await self.settle()
-        self.assertEqual(self.calls[-1][2]["temperature"], 18)
-        self.assertFalse(self.runtime.status.alarm.thermal_critical)
+        self.assertEqual(self.runtime.data["ac_target"], 21)
+        self.assertEqual(self.runtime.entry.options["ac_target"], 21)
         count = len(self.calls)
-        for temperature in ("24", "unavailable", "23.1"):
+        for temperature in ("27", "unavailable", "25.5", "26"):
             self.hass.states.async_set("sensor.tin", temperature, {"unit_of_measurement": "°C"})
             await self.settle()
-            self.assertEqual(self.runtime.active_ac_target, 18)
             self.assertEqual(len(self.calls), count)
-        self.hass.states.async_set("sensor.tin", "23", {"unit_of_measurement": "°C"})
+        from custom_components.fourvrs_server_room.adaptation import DownwardAdaptation
+        restored = DownwardAdaptation(self.runtime)
+        await restored.load()
+        self.assertTrue(restored.closed)
+        self.runtime.adaptation = restored
+        self.runtime.refresh()
         await self.settle()
-        self.assertEqual(self.calls[-1][2]["temperature"], 22)
-        self.assertIsNone(self.runtime.emergency_ac_target)
+        self.assertEqual(len(self.calls), count)
+        self.hass.states.async_set("sensor.tin", "25", {"unit_of_measurement": "°C"})
+        await self.settle()
+        self.assertEqual(self.runtime.data["ac_target"], 21)
+        self.hass.states.async_set("sensor.tin", "26", {"unit_of_measurement": "°C"})
+        await self.settle()
+        self.assertEqual(self.runtime.entry.options["ac_target"], 20)
+        self.assertEqual(len(self.calls), count + 1)
+        self.hass.config_entries = None
+
+    async def test_adaptation_minimum_and_observation_do_not_send(self):
+        self.runtime.data["ac_target"] = 16
+        self.hvac.update(temperature=16, current_temperature=19, target_temp_step=1)
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        self.hass.states.async_set("sensor.tin", "26", {"unit_of_measurement": "°C"})
+        await self.settle()
+        self.assertIsNone(self.runtime.adaptation.pending)
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.calls, [])
+        self.assertTrue(self.runtime.adaptation.limit_reported)
+        self.assertEqual(sum(e["event"] == "adaptation_limit" for e in self.runtime.telemetry.events), 1)
+
+    async def test_cold_ac_inlet_uses_temporary_target_without_learning_it(self):
+        self.runtime.entry.data = dict(self.runtime.data)
+        self.runtime.entry.options = {}
+        def update(entry, *, options):
+            entry.options = options
+        self.hass.config_entries = SimpleNamespace(async_update_entry=update)
+        self.hvac.update(current_temperature=18.5, target_temp_step=1)
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        self.hass.states.async_set("sensor.tin", "26", {"unit_of_measurement": "°C"})
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertEqual(self.calls[-1][2]["temperature"], 17)
+        self.assertEqual(self.runtime.data["ac_target"], 22)
+        self.assertEqual(self.runtime.entry.options, {})
+        self.assertEqual(self.runtime.adaptation.pending["target"], 21)
+        self.hass.states.async_set("sensor.tin", "23.6", {"unit_of_measurement": "°C"})
+        await self.settle()
+        self.assertEqual(self.runtime.active_ac_target, 17)
+        self.hass.states.async_set("sensor.tin", "21", {"unit_of_measurement": "°C"})
+        await self.settle()
+        self.assertEqual(self.calls[-1][2]["temperature"], 21)
+        self.assertEqual(self.runtime.entry.options["ac_target"], 21)
+        self.assertIsNone(self.runtime.adaptation.pending)
+        self.hass.config_entries = None
 
     async def test_warning_boost_does_not_override_outdoor_prohibition(self):
         self.hvac.update(current_temperature=19, target_temp_step=1)
