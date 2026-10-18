@@ -335,6 +335,42 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.calls), count + 1)
         self.assertTrue(self.runtime.observer.reserve_hold)
 
+    async def test_warning_boost_uses_configured_threshold_and_holds_until_rack_goal(self):
+        from dataclasses import replace
+        self.runtime.observer.config = replace(self.runtime.observer.config, warning_on=25, rack_recovery_offset=1)
+        self.hvac.update(current_temperature=19, target_temp_step=1)
+        self.hass.states.async_set("number.cdr", "0")
+        self.hass.states.async_set("switch.fan", "off")
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertIsNone(self.runtime.emergency_ac_target)  # Exactly WARNING does not trigger.
+        self.hass.states.async_set("sensor.tin", "25.1", {"unit_of_measurement": "°C"})
+        await self.settle()
+        self.assertEqual(self.calls[-1][2]["temperature"], 18)
+        self.assertFalse(self.runtime.status.alarm.thermal_critical)
+        count = len(self.calls)
+        for temperature in ("24", "unavailable", "23.1"):
+            self.hass.states.async_set("sensor.tin", temperature, {"unit_of_measurement": "°C"})
+            await self.settle()
+            self.assertEqual(self.runtime.active_ac_target, 18)
+            self.assertEqual(len(self.calls), count)
+        self.hass.states.async_set("sensor.tin", "23", {"unit_of_measurement": "°C"})
+        await self.settle()
+        self.assertEqual(self.calls[-1][2]["temperature"], 22)
+        self.assertIsNone(self.runtime.emergency_ac_target)
+
+    async def test_warning_boost_does_not_override_outdoor_prohibition(self):
+        self.hvac.update(current_temperature=19, target_temp_step=1)
+        self.hass.states.async_set("sensor.tout", "-20", {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("sensor.tin", "27", {"unit_of_measurement": "°C"})
+        self.hass.states.async_set("climate.ac", "cool", self.hvac)
+        self.runtime.executor.enable()
+        await self.settle()
+        self.assertIsNone(self.runtime.emergency_ac_target)
+        self.assertFalse(any(d == "climate" and (s == "set_temperature" or p.get("hvac_mode") == "cool")
+                             for d, s, p in self.calls))
+
     async def test_boost_restore_waits_for_outstanding_readback(self):
         self.hvac.update(current_temperature=21.5, target_temp_step=1)
         self.hass.states.async_set("number.cdr", "0")

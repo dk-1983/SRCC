@@ -61,9 +61,18 @@ class Runtime:
 
     def _update_emergency_target(self, state, climate_state):
         previous = self.emergency_ac_target
-        if not self.status.alarm.thermal_critical:
+        config = self.observer.config
+        sample = self.status.temperature.sample
+        rack = sample.temperature(state.now, self.data["max_age"]) if sample else None
+        recovery = min(config.critical_recovery,
+                       self.data.get("ac_target", 22.0) + config.rack_recovery_offset)
+        recovered = rack is not None and rack <= recovery
+        requested = (self.status.alarm.thermal_critical
+                     or (rack is not None and config.warning_on is not None and rack > config.warning_on))
+        if recovered:
             self.emergency_ac_target = None
-        elif self.emergency_ac_target is None and climate_state is not None:
+        elif (self.emergency_ac_target is None and requested
+              and self.status.decision.desired is Mode.AIR_CONDITIONING and climate_state is not None):
             measured = state.ac_temperature.temperature(state.now, self.data["max_age"]) if state.ac_temperature else None
             attrs = climate_state.attributes
             minimum, maximum, step = (attrs.get(k) for k in ("min_temp", "max_temp", "target_temp_step"))
@@ -77,7 +86,9 @@ class Runtime:
             self.emergency_ac_target = emergency_target(self.data.get("ac_target", 22.0), measured, minimum, maximum, step)
         if previous != self.emergency_ac_target:
             self.telemetry.record("emergency_ac_target", active=self.emergency_ac_target is not None,
-                                  target=self.active_ac_target, normal_target=self.data.get("ac_target", 22.0))
+                                  target=self.active_ac_target, normal_target=self.data.get("ac_target", 22.0),
+                                  rack_temperature=rack, warning_threshold=config.warning_on,
+                                  recovery_target=recovery)
 
     async def _save_reserve(self):
         async with self.reserve_lock:
