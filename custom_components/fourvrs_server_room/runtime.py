@@ -27,7 +27,8 @@ class Runtime:
         self.observer = Observer(core_config(data), max_age=data["max_age"],
                                  recovery_max_gap=data["recovery_max_gap"],
                                  sample_tolerance=data["sample_tolerance"],
-                                 backup_max_skew=data["backup_max_skew"])
+                                 backup_max_skew=data["backup_max_skew"],
+                                 ac_target=data.get("ac_target", 22.0))
         self.status = None
         self.snapshot = None
         self.reported_mode = "unknown"
@@ -199,12 +200,18 @@ class Runtime:
             target = read_sample(proxy, source=climate_state.entity_id + ":target", now=now,
                                  wall_now=wall_now, kind="temperature", attribute="temperature",
                                  clock_anchor=(self._clock_anchor, self._wall_anchor))
+            ac_temperature = read_sample(proxy, source=climate_state.entity_id + ":current", now=now,
+                                         wall_now=wall_now, kind="temperature", attribute="current_temperature",
+                                         clock_anchor=(self._clock_anchor, self._wall_anchor))
         else:
+            ac_temperature = Sample(None, "ac_temperature", now, Quality.UNAVAILABLE)
             target = Sample(None, "ac_target", now, Quality.UNAVAILABLE)
         target = replace(target, freshness_limit=self.data.get("ac_max_age", 180.0))
+        ac_temperature = replace(ac_temperature, freshness_limit=self.data.get("ac_max_age", 180.0))
         climate_unavailable = mode.quality is Quality.UNAVAILABLE
         if self.haier:
             mode, target, fault = self.haier.samples(now)
+            ac_temperature = self.haier.temperature_sample(now)
             samples["climate"] = mode
             samples["ac_telemetry"] = mode
             samples["ac_fault"] = fault
@@ -215,6 +222,7 @@ class Runtime:
             ac_available=mode.fresh(now, age),
             vent_available=enabled.fresh(now, age) and output.fresh(now, age),
             vent_enabled=enabled, vent_output=output, ac_mode=mode, ac_target=target,
+            ac_temperature=ac_temperature,
             ac_fault=fault.value if fault.fresh(now, age) else None,
             ac_fault_monitored=bool(self.haier or self.data.get("ac_fault")),
             ac_command_confirmed=self.haier.confirmed(now) if self.haier else None,

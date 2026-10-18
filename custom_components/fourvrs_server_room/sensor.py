@@ -6,7 +6,7 @@ from .entity import SrccEntity
 
 KEYS = ("temperature", "outdoor_temperature", "temperature_source", "alarm_severity",
         "reported_mode", "desired_mode", "decision_reason", "ventilation_trend",
-        "observation_samples", "power_state", "recovery_elapsed")
+        "observation_samples", "power_state")
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -22,9 +22,6 @@ class SrccSensor(SrccEntity, SensorEntity):
             self._attr_state_class = SensorStateClass.MEASUREMENT
         elif key == "ventilation_trend":
             self._attr_native_unit_of_measurement = "°C/min"
-        elif key == "recovery_elapsed":
-            self._attr_device_class = SensorDeviceClass.DURATION
-            self._attr_native_unit_of_measurement = "s"
 
     @property
     def native_value(self):
@@ -44,7 +41,6 @@ class SrccSensor(SrccEntity, SensorEntity):
             "ventilation_trend": status.trend.rate_per_minute,
             "observation_samples": status.trend.samples,
             "power_state": snapshot.power.value,
-            "recovery_elapsed": status.alarm.recovery_elapsed,
         }
         return values[self.key]
 
@@ -58,6 +54,10 @@ class SrccSensor(SrccEntity, SensorEntity):
                     "execution_reason": self.runtime.executor.step.reason, "execution_error": self.runtime.executor.error, "blockers": list(status.decision.blockers),
                     "urgent": status.decision.urgent,
                     "last_command": self.runtime.executor.last_command,
+                    "recovery_basis": "ac_temperature_and_rack",
+                    "ac_measured_temperature": self.runtime.snapshot.ac_temperature.temperature(self.runtime.snapshot.now, self.runtime.data["max_age"]) if self.runtime.snapshot.ac_temperature else None,
+                    "ac_recovery_target": self.runtime.observer.ac_target,
+                    "rack_recovery_limit": self.runtime.observer.config.critical_recovery,
                     "input_issues": [role for role, item in self.runtime.input_status.items() if item["quality"] != "valid"]}
         if self.key == "temperature_source":
             return {"selection_reason": status.temperature.reason,

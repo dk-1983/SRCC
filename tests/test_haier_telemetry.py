@@ -15,6 +15,17 @@ def packet(**changes):
 
 
 class HaierTelemetryTests(unittest.TestCase):
+    def test_measured_temperature_preserves_uart_freshness(self):
+        cache = HaierTelemetry()
+        cache.receive(packet(current_temperature=22), 100)
+        self.assertEqual(cache.temperature_sample(100).temperature(100, 120), 22)
+        cache.receive(packet(published_uptime_ms=15000, age_ms=5000, current_temperature=22), 105)
+        self.assertEqual(cache.temperature_sample(105).measured_at, 100)
+        self.assertIsNone(cache.temperature_sample(121).temperature(121, 120))
+        cache.receive(packet(status_frames=11, sample_uptime_ms=16000,
+                             published_uptime_ms=16000, current_temperature=None), 106)
+        self.assertIsNone(cache.temperature_sample(106).value)
+
     def test_validation_rejects_wrong_schema_types_clocks_and_fault(self):
         bad = [dict(schema=2), dict(schema=True), dict(boot_id="bad"),
                dict(status_frames=True), dict(sample_uptime_ms=-1),

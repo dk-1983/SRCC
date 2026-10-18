@@ -141,7 +141,7 @@ class HaRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     if state.entity_id.startswith(("sensor.server_room_climate_controller_",
                                                    "binary_sensor.server_room_climate_controller_",
                                                    "switch.server_room_climate_controller_"))]
-        self.assertEqual(len(entities), 17, [state.entity_id for state in self.hass.states.async_all()])
+        self.assertEqual(len(entities), 16, [state.entity_id for state in self.hass.states.async_all()])
         loaded_runtime = entry.runtime_data
         options = settings()
         del options["bolid_temperature_1"]

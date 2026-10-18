@@ -27,8 +27,9 @@ class Observer:
     """
     def __init__(self, config: Config, *, max_age: float, recovery_max_gap: float,
                  sample_tolerance: float, backup_max_skew: float,
-                 fallback: Fallback = Fallback.MEAN_ALLOW_ONE):
+                 fallback: Fallback = Fallback.MEAN_ALLOW_ONE, ac_target: float = 22.0):
         self.config, self.max_age = config, max_age
+        self.ac_target = ac_target
         self.fallback, self.backup_max_skew = fallback, backup_max_skew
         self.alarm = TemperatureAlarm(config, max_age=max_age, max_gap=recovery_max_gap)
         self.trend = VentilationTrend(config, max_age=max_age, tolerance=sample_tolerance)
@@ -40,7 +41,8 @@ class Observer:
                                       max_skew=self.backup_max_skew)
         temperature = selected.sample or Sample(None, "no_temperature", snapshot.now, Quality.UNKNOWN)
         # Alarm evaluation always precedes trend collection, also on source change.
-        alarm = self.alarm.update(temperature, now=snapshot.now, other_critical=other_critical)
+        alarm = self.alarm.update(temperature, now=snapshot.now, other_critical=other_critical,
+                                  ac_temperature=snapshot.ac_temperature, ac_target=self.ac_target)
         active = (snapshot.vent_available
                   and snapshot.proved(snapshot.vent_enabled, True, self.max_age)
                   and snapshot.proved(snapshot.vent_output, True, self.max_age))

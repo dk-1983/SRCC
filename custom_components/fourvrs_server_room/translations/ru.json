@@ -23,8 +23,7 @@
           "warning_on": "Температура WARNING",
           "critical_on": "Температура CRITICAL",
           "critical_recovery": "Температура снятия CRITICAL",
-          "recovery_hold": "Выдержка снятия CRITICAL при снижении температуры",
-          "ac_hard_min": "Минимальная Tout для AC (на границе и ниже запуск запрещён)",
+          "ac_hard_min": "Минимальная Tout для AC (ниже запуск запрещён)",
           "vent_to_ac": "Tout перехода с вентиляции на AC",
           "ac_to_vent": "Tout перехода с AC на вентиляцию",
           "reported_freshness_confirmed": "Использовать возраст публикации HA для наблюдения; это не подтверждает свежесть физических измерений",
@@ -99,8 +98,7 @@
           "warning_on": "Температура WARNING",
           "critical_on": "Температура CRITICAL",
           "critical_recovery": "Температура снятия CRITICAL",
-          "recovery_hold": "Выдержка снятия CRITICAL при снижении температуры",
-          "ac_hard_min": "Минимальная Tout для AC (на границе и ниже запуск запрещён)",
+          "ac_hard_min": "Минимальная Tout для AC (ниже запуск запрещён)",
           "vent_to_ac": "Tout перехода с вентиляции на AC",
           "ac_to_vent": "Tout перехода с AC на вентиляцию",
           "reported_freshness_confirmed": "Использовать возраст публикации HA для наблюдения; это не подтверждает свежесть физических измерений",
@@ -180,9 +178,6 @@
       },
       "power_state": {
         "name": "Состояние сети"
-      },
-      "recovery_elapsed": {
-        "name": "Выдержка восстановления CRITICAL"
       }
     },
     "binary_sensor": {

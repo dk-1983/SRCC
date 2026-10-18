@@ -78,56 +78,45 @@ class AlarmTests(unittest.TestCase):
         self.assertEqual(alarm.update(temp(26), now=0).severity, Severity.WARNING)
         self.assertEqual(alarm.update(temp(28), now=0).severity, Severity.CRITICAL)
 
-    def test_two_minutes_of_falling_temperature(self):
+    def test_elapsed_time_alone_never_recovers(self):
         alarm = self.alarm()
         alarm.update(temp(28), now=0)
-        for now, value in ((60, 27), (120, 26.9)):
-            self.assertTrue(alarm.update(temp(value, now), now=now).thermal_critical)
-        result = alarm.update(temp(26.8, 180), now=180)
+        for now in (60, 120, 600):
+            self.assertTrue(alarm.update(temp(26, now), now=now,
+                            ac_temperature=temp(23, now), ac_target=22).thermal_critical)
+
+    def test_measured_target_recovers_without_timer(self):
+        alarm = self.alarm()
+        alarm.update(temp(28), now=0)
+        result = alarm.update(temp(27, 1), now=1, ac_temperature=temp(22, 1), ac_target=22)
         self.assertFalse(result.thermal_critical)
-        self.assertEqual(result.severity, Severity.WARNING)
 
-    def test_flat_or_rising_does_not_clear(self):
-        for values in ((26.5, 26.5, 26.5), (26.5, 26.6, 26.7)):
+    def test_cool_ac_does_not_hide_hot_rack(self):
+        alarm = self.alarm()
+        alarm.update(temp(28), now=0)
+        self.assertTrue(alarm.update(temp(27.5, 1), now=1,
+                        ac_temperature=temp(21, 1), ac_target=22).thermal_critical)
+
+    def test_stale_missing_or_precritical_ac_cannot_recover(self):
+        for sample in (None, temp(22, 0), temp(None, 100)):
             alarm = self.alarm()
-            alarm.update(temp(28), now=0)
-            for now, value in zip((60, 120, 180), values):
-                result = alarm.update(temp(value, now), now=now)
-            self.assertTrue(result.thermal_critical)
+            alarm.update(temp(28, 1), now=1)
+            self.assertTrue(alarm.update(temp(26, 100), now=100,
+                            ac_temperature=sample, ac_target=22).thermal_critical)
 
-    def test_missing_data_resets_recovery_not_latch(self):
+    def test_missing_rack_does_not_recover(self):
         alarm = self.alarm()
         alarm.update(temp(28), now=0)
-        alarm.update(temp(27, 60), now=60)
-        self.assertTrue(alarm.update(temp(None, 120), now=120).thermal_critical)
-        self.assertTrue(alarm.update(temp(26.5, 180), now=180).thermal_critical)
-
-    def test_source_change_restarts_recovery(self):
-        alarm = self.alarm()
-        alarm.update(temp(28), now=0)
-        alarm.update(temp(27, 60), now=60)
-        alarm.update(temp(26.9, 120), now=120)
-        result = alarm.update(temp(26.8, 180, "bolid_mean"), now=180)
-        self.assertTrue(result.thermal_critical)
-        self.assertEqual(result.recovery_elapsed, 0)
-
-    def test_hot_fallback_critical_without_trend(self):
-        self.assertTrue(self.alarm().update(temp(28, 0, "bolid_mean"), now=0).thermal_critical)
+        self.assertTrue(alarm.update(temp(None, 1), now=1,
+                        ac_temperature=temp(22, 1), ac_target=22).thermal_critical)
 
     def test_other_critical_survives_temperature_recovery(self):
         alarm = self.alarm()
         alarm.update(temp(28), now=0)
-        for now, value in ((60, 27), (120, 26.9), (180, 26.8)):
-            result = alarm.update(temp(value, now), now=now, other_critical=True)
+        result = alarm.update(temp(26, 1), now=1, other_critical=True,
+                              ac_temperature=temp(22, 1), ac_target=22)
         self.assertFalse(result.thermal_critical)
         self.assertEqual(result.severity, Severity.CRITICAL)
-
-    def test_old_repeated_reading_cannot_clear(self):
-        alarm = self.alarm()
-        alarm.update(temp(28), now=0)
-        for now in (60, 120, 180):
-            result = alarm.update(temp(26, 60), now=now)
-        self.assertTrue(result.thermal_critical)
 
 
 class TrendTests(unittest.TestCase):
@@ -183,7 +172,8 @@ class PolicyTests(unittest.TestCase):
 
     def test_failed_vent_reserve_and_hard_minimum(self):
         for outside, desired in ((-2, Mode.AIR_CONDITIONING),
-                                 (-5, Mode.NO_COOLING_AVAILABLE),
+                                 (-15, Mode.AIR_CONDITIONING),
+                                 (-15.1, Mode.NO_COOLING_AVAILABLE),
                                  (-40, Mode.NO_COOLING_AVAILABLE)):
             result = choose(snapshot(tout=temp(outside), vent_ineffective=True), Config(), max_age=60)
             self.assertEqual(result.desired, desired)
@@ -253,7 +243,7 @@ class TransitionTests(unittest.TestCase):
     def test_guard_rechecked_after_vent_disabled(self):
         planner = self.planner()
         self.advance(planner, snapshot(vent_enabled=Sample(True, "cdr", 0)))
-        result = self.advance(planner, snapshot(1, tout=temp(-5, 1)))
+        result = self.advance(planner, snapshot(1, tout=temp(-16, 1)))
         self.assertEqual(result.reason, "AC_HARD_MIN_BLOCK")
         self.assertIsNone(result.action)
 
@@ -307,7 +297,7 @@ class OptionalAcFaultTests(unittest.TestCase):
                 self.assertEqual(step.action is Action.AC_COOL, allowed)
 
     def test_absent_fault_does_not_bypass_ac_availability_or_minimum(self):
-        for changes in ({"ac_available": False}, {"tout": temp(-5)}):
+        for changes in ({"ac_available": False}, {"tout": temp(-16)}):
             state = snapshot(ac_fault_monitored=False, ac_fault=None, **changes)
             self.assertIsNot(choose(state, Config(), max_age=60).desired, Mode.AIR_CONDITIONING)
             step = TransitionPlanner(Config(), max_age=60, timeout=30, ac_target=22).advance(

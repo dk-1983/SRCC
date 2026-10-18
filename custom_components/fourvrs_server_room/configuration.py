@@ -19,6 +19,7 @@ def validate(data: dict) -> dict:
     result = {key: value for key, value in data.items() if value != ""}
     # Obsolete external compressor delay: the appliance owns restart protection.
     result.pop("minimum_ac_off", None)
+    result.pop("recovery_hold", None)
     for key in ("voice_info", "voice_warning", "voice_error", "voice_repeat"):
         result.setdefault(key, False)
         if type(result[key]) is not bool:

@@ -27,7 +27,7 @@ def choose(snapshot: Snapshot, config: Config, *, max_age: float,
         # Battery thresholds and load budget are not agreed. Never assume mains
         # or issue a new cooling goal based solely on On Battery.
         return Decision(None, "POWER_POLICY_REQUIRED", (snapshot.power.value,), urgent)
-    ac_ok = (tout > config.ac_hard_min and snapshot.ac_available
+    ac_ok = (tout >= config.ac_hard_min and snapshot.ac_available
              and snapshot.ac_fault_allows_operation and not snapshot.ac_ineffective)
     vent_ok = snapshot.vent_available and not snapshot.vent_ineffective
     # Thermal recovery takes priority over seasonal economy. This does not

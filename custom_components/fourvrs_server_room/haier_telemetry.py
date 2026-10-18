@@ -35,6 +35,7 @@ class Frame:
     fault_code: int | None
     request_id: str
     command_state: str
+    current_temperature: float | None = None
 
     @classmethod
     def parse(cls, data):
@@ -72,7 +73,9 @@ class Frame:
         request, command = data.get("request_id"), data.get("command_state")
         if not isinstance(request, str) or len(request) > 80 or not isinstance(command, str) or len(command) > 40:
             raise ValueError("INVALID_COMMAND_STATE")
-        return cls(boot.lower(), count, sample, published, available, mode, target, valid, fault, code, request, command)
+        current = data.get("current_temperature")
+        current = float(current) if available and number(current) else None
+        return cls(boot.lower(), count, sample, published, available, mode, target, valid, fault, code, request, command, current)
 
 
 class HaierTelemetry:
@@ -109,7 +112,7 @@ class HaierTelemetry:
                     raise ValueError("OUT_OF_ORDER_TELEMETRY")
                 if (frame.count == old.count) != (frame.sample_ms == old.sample_ms):
                     raise ValueError("INCONSISTENT_SAMPLE_ID")
-                if frame.count == old.count and frame.available and old.available and (frame.mode, frame.target) != (old.mode, old.target):
+                if frame.count == old.count and frame.available and old.available and (frame.mode, frame.target, frame.current_temperature) != (old.mode, old.target, old.current_temperature):
                     raise ValueError("STATE_CHANGED_WITHOUT_SAMPLE")
                 if frame.count == old.count and frame.fault_valid and old.fault_valid and (frame.fault, frame.fault_code) != (old.fault, old.fault_code):
                     raise ValueError("FAULT_CHANGED_WITHOUT_SAMPLE")
@@ -152,6 +155,11 @@ class HaierTelemetry:
         if now - self.measured_at >= self.SOURCE_LIMIT:
             return Quality.STALE
         return Quality.VALID
+
+    def temperature_sample(self, now):
+        value = self.frame.current_temperature if self.frame else None
+        quality = self.quality(now) if value is not None else Quality.UNKNOWN
+        return Sample(value, "haier_telemetry", self.measured_at or 0.0, quality, self.SOURCE_LIMIT)
 
     def samples(self, now):
         quality = self.quality(now)

@@ -23,8 +23,7 @@
           "warning_on": "WARNING temperature",
           "critical_on": "CRITICAL temperature",
           "critical_recovery": "Critical recovery temperature",
-          "recovery_hold": "Critical recovery duration with falling temperature",
-          "ac_hard_min": "AC minimum outdoor temperature (start forbidden at or below)",
+          "ac_hard_min": "AC minimum outdoor temperature (start forbidden below)",
           "vent_to_ac": "Outdoor temperature: ventilation to AC",
           "ac_to_vent": "Outdoor temperature: AC to ventilation",
           "reported_freshness_confirmed": "Use HA publication age for observation; I understand this does not prove physical device freshness",
@@ -99,8 +98,7 @@
           "warning_on": "WARNING temperature",
           "critical_on": "CRITICAL temperature",
           "critical_recovery": "Critical recovery temperature",
-          "recovery_hold": "Critical recovery duration with falling temperature",
-          "ac_hard_min": "AC minimum outdoor temperature (start forbidden at or below)",
+          "ac_hard_min": "AC minimum outdoor temperature (start forbidden below)",
           "vent_to_ac": "Outdoor temperature: ventilation to AC",
           "ac_to_vent": "Outdoor temperature: AC to ventilation",
           "reported_freshness_confirmed": "Use HA publication age for observation; I understand this does not prove physical device freshness",
@@ -180,9 +178,6 @@
       },
       "power_state": {
         "name": "Mains state"
-      },
-      "recovery_elapsed": {
-        "name": "Critical recovery elapsed time"
       }
     },
     "binary_sensor": {

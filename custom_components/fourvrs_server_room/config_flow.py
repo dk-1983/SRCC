@@ -27,7 +27,7 @@ def schema(defaults=None):
     for key in CONFIG_FIELDS:
         fields[vol.Required(key, default=defaults.get(key, getattr(Config(), key)))] = selector.NumberSelector(
             selector.NumberSelectorConfig(step="any", mode=selector.NumberSelectorMode.BOX,
-                                          unit_of_measurement="s" if key == "recovery_hold" else "°C"))
+                                          unit_of_measurement="°C"))
     fields[vol.Required("reported_freshness_confirmed", default=defaults.get(
         "reported_freshness_confirmed", False))] = selector.BooleanSelector()
     for key in ("control_profile_enabled", "equipment_readback_confirmed", "shared_mains_confirmed"):

@@ -281,6 +281,33 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(self.calls[-1][2]["temperature"], 71.6)
         self.assertTrue(self.runtime.executor.step.complete)
 
+    async def test_negative_threshold_form_and_legacy_recovery_migration(self):
+        from custom_components.fourvrs_server_room.config_flow import schema
+        data = settings(ac_hard_min=-15, ac_to_vent=-4, vent_to_ac=-2)
+        self.assertEqual(validate(schema()(data))["vent_to_ac"], -2)
+        self.assertNotIn("recovery_hold", validate(dict(data, recovery_hold=120)))
+
+    async def test_recovery_uses_measured_ac_temperature_and_separate_rack_limit(self):
+        self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, current_temperature=23))
+        self.hass.states.async_set("sensor.tin", "28", {"unit_of_measurement": "°C"})
+        await self.settle()
+        self.assertTrue(self.runtime.status.alarm.thermal_critical)
+        self.hass.states.async_set("sensor.tin", "26.8", {"unit_of_measurement": "°C"})
+        await self.settle()
+        # Target is already 22, but measured air remains warmer.
+        self.assertTrue(self.runtime.status.alarm.thermal_critical)
+        self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, current_temperature=22))
+        await self.settle()
+        self.assertFalse(self.runtime.status.alarm.thermal_critical)
+        self.assertEqual(self.calls, [])
+
+    async def test_ac_measured_temperature_is_converted_from_fahrenheit(self):
+        from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+        self.hass.config.units = US_CUSTOMARY_SYSTEM
+        self.hass.states.async_set("climate.ac", "cool", dict(self.hvac, current_temperature=71.6))
+        await self.settle()
+        self.assertAlmostEqual(self.runtime.snapshot.ac_temperature.value, 22)
+
     async def test_switch_permission_profile(self):
         self.runtime.stop()
         self.hass.states.async_set("switch.cdr", "on")

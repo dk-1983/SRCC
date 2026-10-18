@@ -69,12 +69,11 @@ class Sample(Generic[T]):
 
 @dataclass(frozen=True)
 class Config:
-    ac_hard_min: float = -5.0
+    ac_hard_min: float = -15.0
     vent_to_ac: float = 1.0
     ac_to_vent: float = -1.0
     critical_on: float = 28.0
     critical_recovery: float = 27.0
-    recovery_hold: float = 120.0
     sample_interval: float = 60.0
     vent_observation: float = 300.0
     vent_samples: int = 5
@@ -84,8 +83,6 @@ class Config:
     emergency_on: float | None = None
     emergency_off: float | None = None
     emergency_outdoor_max: float = 10.0
-    # Direction only is agreed; a nonzero noise margin can be configured.
-    minimum_recovery_drop: float = 0.0
 
     def __post_init__(self) -> None:
         for name, value in vars(self).items():
@@ -96,13 +93,11 @@ class Config:
                 raise ValueError(f"{name} must be finite")
         if not self.ac_hard_min < self.ac_to_vent < self.vent_to_ac:
             raise ValueError("hard minimum < AC-to-vent < vent-to-AC required")
-        if self.vent_to_ac < 0:
-            raise ValueError("normal AC starts below zero are not supported")
         if self.critical_recovery >= self.critical_on:
             raise ValueError("critical recovery must be below critical entry")
         if self.warning_on is not None and self.warning_on >= self.critical_on:
             raise ValueError("warning must be below critical")
-        if self.recovery_hold <= 0 or self.sample_interval <= 0:
+        if self.sample_interval <= 0:
             raise ValueError("durations must be positive")
         if not isinstance(self.vent_samples, int) or self.vent_samples < 3:
             raise ValueError("at least three samples required")
@@ -116,8 +111,6 @@ class Config:
             raise ValueError("both emergency thresholds required")
         if self.emergency_on is not None and self.emergency_off >= self.emergency_on:
             raise ValueError("emergency off must be below on")
-        if self.minimum_recovery_drop < 0:
-            raise ValueError("recovery drop must not be negative")
 
 
 @dataclass(frozen=True)
@@ -144,6 +137,7 @@ class Snapshot:
     vent_ineffective: bool = False
     ac_ineffective: bool = False
     thermal_critical: bool = False
+    ac_temperature: Sample[float] | None = None
     current: Mode | None = None
 
     # Unassigned optional fault input differs from a configured input with lost data.

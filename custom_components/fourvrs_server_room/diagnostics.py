@@ -7,6 +7,14 @@ async def async_get_config_entry_diagnostics(hass, entry):
     status = runtime.status
     return {
         "version": VERSION,
+        "thermal_recovery": {
+            "basis": "ac_temperature_and_rack",
+            "ac_target": runtime.observer.ac_target,
+            "rack_limit": runtime.observer.config.critical_recovery,
+            "ac_temperature": (runtime.snapshot.ac_temperature.temperature(
+                runtime.snapshot.now, runtime.data["max_age"])
+                if runtime.snapshot.ac_temperature else None),
+        },
         "voice": runtime.voice.diagnostics(),
         "ac_telemetry": runtime.haier.diagnostics(runtime.snapshot.now) if runtime.haier else None,
         "inputs": runtime.input_status,

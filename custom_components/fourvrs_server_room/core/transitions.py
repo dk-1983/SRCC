@@ -180,16 +180,12 @@ class TransitionPlanner:
         tout = snapshot.tout.temperature(snapshot.now, self.max_age)
         if tin is None or tout is None:
             return Step("BLOCKED", reason="INPUT_QUALITY")
-        if tout <= self.config.ac_hard_min:
+        if tout < self.config.ac_hard_min:
             return Step("BLOCKED", reason="AC_HARD_MIN_BLOCK")
         if snapshot.power is not Power.MAINS:
             return Step("BLOCKED", reason="AC_REQUIRES_MAINS")
         if not snapshot.ac_available or not snapshot.ac_fault_allows_operation or snapshot.ac_ineffective:
             return Step("BLOCKED", reason="AC_UNAVAILABLE")
-        if (tout < 0 and not snapshot.thermal_critical and tin < self.config.critical_on
-                and not snapshot.vent_ineffective and snapshot.vent_available
-                and not snapshot.proved(snapshot.ac_mode, "cool", self.max_age)):
-            return Step("BLOCKED", reason="NEGATIVE_TEMPERATURE_RESERVE_ONLY")
         if self.live_target_updates and not snapshot.proved(snapshot.ac_mode, "cool", self.max_age):
             return self._issue(snapshot, Action.AC_COOL)
         actual = snapshot.ac_target.temperature(snapshot.now, self.max_age)
