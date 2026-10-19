@@ -80,7 +80,7 @@ class Executor:
                                                       else data.get("ac_readback_timeout", 3.0)))
 
     def _recover_haier_conflict(self):
-        """Abandon ambiguous ownership, never treat a foreign result as success."""
+        """Abandon ambiguous command attribution; never accept a foreign result as success."""
         rt, haier = self.runtime, self.runtime.haier
         if not haier:
             return False

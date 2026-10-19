@@ -14,3 +14,26 @@ __pycache__/
 htmlcov/
 Thumbs.db
 .DS_Store
+
+# Private diagnostics, HA exports and local working notes
+*.log
+*.log.*
+config_entry-*.json
+.srcc-observation*/
+.srcc-monitor*/
+.codex/
+.agents/
+AGENTS.md
+AGENTS.local.md
+/notes/
+/scratch/
+/attachments/
+/screenshots/
+Screenshot*.png
+Screenshot*.jpg
+Screenshot*.jpeg
+Pasted text*.txt
+/.storage/
+/secrets.yaml
+/configuration.yaml
+/home-assistant_v2.db*

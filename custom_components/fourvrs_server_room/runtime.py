@@ -140,7 +140,7 @@ class Runtime:
         self.refresh()
 
     async def async_set_control(self, enabled):
-        """Persist operator intent, independently of shutdown cleanup."""
+        """Persist the selected control state, independently of shutdown cleanup."""
         async with self.control_lock:
             if self.stopped:
                 raise HomeAssistantError("SRCC is unloading")

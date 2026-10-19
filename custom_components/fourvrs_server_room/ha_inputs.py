@@ -57,7 +57,7 @@ def power_state(online: Sample, battery: Sample, now: float, max_age: float) -> 
     if not battery.fresh(now, max_age):
         return Power.UNKNOWN
     if battery.value is True:
-        # Online may mean connectivity in an upstream integration. The operator
+        # Online may mean connectivity in an upstream integration. The configuration
         # must map a mains-online signal; on-battery remains authoritative.
         return Power.BATTERY
     if online.fresh(now, max_age) and online.value is True and battery.value is False:

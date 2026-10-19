@@ -1,4 +1,4 @@
-"""Persistent operator control preference; equipment is reconciled on startup."""
+"""Persistent control preference; equipment is reconciled on startup."""
 from homeassistant.components.switch import SwitchEntity
 from .entity import SrccEntity
 
