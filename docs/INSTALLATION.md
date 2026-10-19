@@ -1,169 +1,100 @@
-# Установка и включение SRCC 0.2.3
+[**English**](INSTALLATION.md) · [**Русский**](INSTALLATION_RU.md)
 
-Дополнение 0.4.0: [клиент голосового центра и таблица событий](VOICE_NOTIFICATIONS.md), [публичный контракт v1](VOICE_PROTOCOL_V1.md). Приёмник Home Control ещё не реализован. Настройки оповещений не меняют алгоритм охлаждения.
+# Installation and configuration — 0.8.0
 
-Дополнение 0.3.0: [профиль Haier ESP v1.3.0](HAIER_TELEMETRY.md) описывает новые настройки, подтверждение команд и границы свежести. При его выборе правила этого профиля имеют приоритет над описанием чтения обычного climate ниже.
+SRCC is a custom Home Assistant integration. The development checks used HA 2026.9.2 / Python 3.14.5; field operation has included HA 2026.9.3. Other builds require validation. HACS publication is not claimed.
 
-SRCC читает существующие сущности Home Assistant и, при явно включённой автоматике, отправляет команды кондиционеру и вентиляции. По умолчанию команды запрещены. Исполнительный профиль первой версии рассчитан на разрешение вентиляции `number` с 0/1 или `switch`, прямой выход вентилятора `switch` и кондиционер `climate` с OFF/COOL и температурной уставкой. Другие температурные датчики и необязательные резервы не требуют оборудования определённой марки.
+## Install and update
 
-## Обновление
+Download the integration archive from [Releases](https://github.com/dk-1983/SRCC/releases). Extract its `custom_components/fourvrs_server_room` directory into the HA configuration directory, preserving that path. Restart HA. Add **Server Room Climate Controller** under Settings → Devices & services.
 
-1. Скопируйте всю папку `custom_components/fourvrs_server_room` в `/config/custom_components/` HA с заменой файлов, включая переводы и `brand/`.
-2. Перезапустите Home Assistant. Существующую запись удалять не нужно.
-3. Откройте «Настройки → Устройства и службы → Интеграции → Server Room Climate Controller → Настроить».
-4. Проверьте входы и исполнительный профиль ниже. На устройстве появится 16 сущностей: прежние 15 диагностических и переключатель **Automatic control / Автоматическое управление**.
-5. После сохранения настроек включите этот переключатель для начала управления.
+For an update, replace the integration files and restart HA. Do not delete the existing entry. Its entity bindings and settings remain. Automatic control ON/OFF is restored; command eligibility is checked again. A new installation starts OFF.
 
-Проверено локально на HA 2026.9.2/Python 3.14.5. Конкретная пользовательская сборка 2026.10.0.dev не проверена. Тестовые команды репозитория не подключаются к рабочему HA. Публикации в HACS нет.
+## Entity bindings
 
-## Входы
-
-Обязательны основной датчик помещения/стойки и наружный датчик; принимаются °C, °F и K. Резервные роли независимы: можно назначить 0, 1 или 2 датчика. При исправном основном резерв не используется. При его отказе берётся один настроенный резерв либо среднее двух достоверных; потеря одного из двух настроенных резервов вызывает предупреждение и использование оставшегося. Неназначенный второй датчик не считается неисправным. Отказ основного отражается как деградация даже при доступном резерве.
-
-Внутренние ключи `trm_temperature`, `bolid_temperature_1/2` и коды источников сохранены для совместимости. Они не ограничивают производителя датчиков.
-
-Для управления назначаются:
-
-| Роль | Вход и смысл |
+| Role | Meaning |
 |---|---|
-| Разрешение автоматической вентиляции | `number` 0/1 или `switch`: 0/off — ручной режим выхода; 1/on — автоматический терморегулятор |
-| Состояние выхода вентилятора | `switch`, который одновременно читает ВУ и позволяет управлять им при снятой привязке |
-| Кондиционер | `climate` с поддержкой OFF/COOL и установки температуры |
-| Ошибка AC | Необязательный `binary_sensor`; если назначен, ON или потеря достоверности блокируют AC |
-| UPS mains online | `binary_sensor`: ON означает внешнюю электросеть, не сетевую доступность устройства |
-| UPS on battery | `binary_sensor`: ON означает питание от батареи |
+| Room/rack temperature (`trm_temperature`) | Required primary sensor at the protected hot point; °C, °F, or K |
+| Outdoor temperature | Required outdoor sensor |
+| Backup temperature 1 / 2 | Optional independent sensors; zero, one, or two allowed |
+| Ventilation permission (`vent_enable`) | For control: number 0/1 or switch; 0 allows direct fan output control, 1 restores automatic regulation |
+| Fan output (`vent_output`) | For control: switch with readback; observation also accepts binary_sensor |
+| Air conditioner (`climate`) | HA climate entity supporting COOL/OFF and temperature setpoint |
+| Air conditioner fault | Optional binary_sensor, ON=fault; not having it does not prove fault-free hardware |
+| UPS mains online | binary_sensor ON=external mains present, not network connectivity |
+| UPS on battery | binary_sensor ON=battery power |
+| Haier telemetry / result topic | Optional special profile described in [Haier telemetry](HAIER_TELEMETRY.md) |
 
-Обычный режим наблюдения дополнительно допускает неизменяемые входы разрешения/выхода. Для исполнительного профиля они должны быть доступны для записи. Профиль 0/1 подходит исходной привязке ТРМ к ВУ 1; для других номеров или протоколов требуется отдельная нормализация/адаптер.
+Observation allows read-only permission/output entities. Commands require writable supported domains. Internal role names retain historical TRM/Bolid naming, but sensor bindings are not manufacturer-locked. The 0/1 permission mapping matches the original TRM configuration; a different channel encoding needs an adapter.
 
-Отсутствующий fault не заменяется фиктивным OFF: доступность AC берётся из свежего состояния climate. `unavailable`, `unknown` и устаревшие данные исключают AC из выбора. Состояние ВУ подтверждает электрический выход, не вращение вентилятора. Проверенное на установке автоматическое изменение switch ВУ описано в VALIDATION_PLAN.md.
+Do not select SRCC's own outputs as inputs. Optional fields can be added or cleared later through integration options. The options form replaces the complete configuration, including cleared bindings.
 
-## Исполнительный профиль
+## Freshness settings
 
-Укажите **Enable command capability**, подтвердите проверенную обратную связь и значения разрешения вентиляции. Для исходной установки включите также **AC and UPS share mains**: кондиционер без UPS, вход UPS на той же линии, контроллер связи питается от AC. В других установках эту отметку нельзя переносить без проверки схемы.
+Set these for the actual publication behavior of upstream integrations. Zero is not an appropriate usable maximum age.
 
-| Настройка | Исходная установка |
-|---|---:|
-| AC cooling setpoint | 22 °C |
-| Backup fan ON temperature | 24 °C |
-| Backup fan OFF temperature | 20 °C |
-| Minimum indoor minus outdoor difference | 0 °C; наружный воздух обязательно строго холоднее помещения |
-| Backup fan outdoor limit | 10 °C; при +10 и выше резерв запрещён |
-| Command / readback timeout | 30 s, настраиваемое стартовое значение |
-| Cooling choice confirmation duration | 30 s, настраиваемое стартовое значение |
-| Minimum time between normal cooling changes | 300 s, настраиваемое стартовое значение |
-| Minimum wait before starting stopped AC | 180 s, настраиваемое стартовое значение, не паспортная гарантия Haier |
+| Setting | Meaning / example |
+|---|---|
+| max_age | Positive publication-age limit for generic inputs; 120 s was used for sources updating at least once a minute |
+| ac_max_age | Separate generic climate publication limit; default 180 s |
+| backup_max_skew | Allowed timestamp difference for averaging two backups; example 10 s |
+| sample_tolerance | Timing tolerance for minute sampling; must be below 60 s; example 5 s |
+| recovery_max_gap | Positive legacy timing/validation parameter; example 70 s; does not restore the removed recovery hold timer |
 
-Минимально значимый рост температуры за окно вентиляции необязателен: без значения показывается тренд, но автоматический отказ по росту не объявляется. Порог выбирают по шуму измерений. При выявленной неэффективности признак удерживается до повторного включения автоматики; это предотвращает немедленный возврат на неэффективную вентиляцию.
+The HA publication-age acknowledgement does not certify physical measurement freshness. Confirm that upstream states actually represent readback. An unchanged value can still be newly reported, while a repeated old sample is not a fresh physical measurement. Haier profile limits are distinct from generic ac_max_age.
 
-WARNING=26 °C, CRITICAL=28 °C; снятие при ≤27 °C со снижением за 120 s. Штатные переходы по наружной температуре +1/−1 °C. При первом запуске внутри полосы, если фактический режим неизвестен и обе системы пригодны, выбирается вентиляция. Запуск AC при ≤−5 °C запрещён. Срочность обходит выдержки выбора, но не обратную связь, блокировки и минимальную выдержку AC.
+## Enable equipment commands
 
-## Выполнение команд
+Enable the command profile only after checking feedback and permission semantics. Confirm the 0/1 behavior and the electrical output mapping. Confirm shared mains only if the AC has no backup supply, shares the UPS input supply, and powers its communication controller itself.
 
-Для кондиционирования: снять разрешение терморегулятора → подтвердить 0 → выключить ВУ → подтвердить OFF → отправить COOL и уставку → подтвердить режим и температуру. Для штатной вентиляции: OFF кондиционера → подтверждение → разрешить терморегулятор. Для резервной вентиляции: подтвердить OFF или обесточивание AC → снять привязку → управлять ВУ по 24/20 °C, с ограничением наружной температуры.
+Then enable **Automatic control**. Switching it OFF leaves equipment in its last state; it does not restore the temperature controller automatically. Do not use it as an emergency equipment stop.
 
-Согласованные свежие `Online=off`, `On battery=on`, `climate=unavailable` при подтверждённом общем вводе доказывают отсутствие питания AC. При возвращении сети это доказательство сразу утрачивается. Авторестарт Haier может временно совпасть с работающим вентилятором; для этой установки такое пересечение допускается. SRCC пересматривает режим сразу после новых данных, без намеренного пятиминутного ожидания. Краткое пересечение не объявляется температурной CRITICAL при включённой автоматике.
+## Temperatures and timing
 
-Сервисы выполняются последовательно. Успешный сервис не заменяет нового readback. Ошибка сервиса или тайм-аут фиксируются без автоматических повторов. Причину смотрите в атрибутах **Decision reason**: `execution_phase`, `execution_reason`, `execution_error`. После устранения причины выключите и включите автоматику для нового согласования состояний.
+| Key | Initial value | Meaning |
+|---|---:|---|
+| ac_target | 22 °C | Normal setpoint; confirmed downward adaptation updates this same field |
+| warning_on / critical_on | 26 / 28 °C | Protected rack thresholds |
+| critical_recovery | 27 °C | Upper cap for the recovery target |
+| rack_recovery_offset | 0 °C | Calibrated rack offset above normal AC target; target+offset must be below WARNING |
+| ac_hard_min | −15 °C | AC allowed at equality, prohibited below |
+| ac_to_vent / vent_to_ac | −1 / +1 °C | Seasonal hysteresis; negative values allowed |
+| emergency_on / emergency_off | 24 / 20 °C | Backup fan demand |
+| emergency_delta | 0 °C | Minimum rack-minus-outdoor difference; outdoors must still be strictly colder |
+| emergency_outdoor_max | 10 °C | Backup ventilation prohibited at or above this temperature |
+| minimum_vent_rise | Optional | Significant rise over the ventilation observation window |
+| command_timeout | 30 s | HA service-call/general confirmation budget |
+| ac_readback_timeout | 3 s | Generic AC confirmation budget; tune to actual feedback |
+| haier_readback_timeout | 35 s | Haier telemetry/result confirmation budget |
+| condition_hold / minimum_dwell | 30 / 300 s | Normal cooling-choice stability and dwell |
 
-Выключение автоматики прекращает новые команды и сохраняет текущее состояние оборудования. Уже отправленная команда может завершиться. Начиная с 0.2.2 перезапуск HA или изменение options сохраняют выбранное состояние автоматики. Отключение исполнительного профиля сбрасывает сохранённое ON. Незавершённые команды не повторяются. После повторного включения проверяются текущие состояния.
+The removed minimum_ac_off and recovery_hold values are ignored. There is no external compressor delay or 120-second recovery hold. Do not reduce freshness or confirmation timeouts to disable a seasonal delay.
 
-## Свежесть и ограничения
+A configuration example used during the field investigation is AC minimum −6 °C, AC→vent −4 °C, vent→AC −2 °C. These are installation-specific, not new defaults. No upgrade rewrites saved thresholds.
 
-Для оценки возраста используется `State.last_reported`; публикация HA сама по себе не гарантирует физический опрос. Нужны проверенные readback источники; restored/unknown/unavailable/нечисловые значения не считаются подтверждением. Предварительные значения для источников с обновлением не реже минуты: max_age=120 s, backup_max_skew=10 s, sample_tolerance=5 s, recovery_max_gap=70 s. Допуск времени двух резервов используется только для среднего.
+Rack temperature is measured at a hot point and can differ substantially from the AC inlet. Calibrate rack_recovery_offset from stable measurements; a single snapshot is not a measured long-term offset. If the recovery target cannot be reached, the critical latch can remain while cooling continues. See [behavior](BEHAVIOR.md).
 
-Резервы выбираются раз в минуту; потеря доступности обрабатывается сразу. Watchdog раз в секунду проверяет возраст без транспортного опроса. SRCC не вызывает update_entity и не реализует Modbus/Wi-Fi.
+## Version 0.8.0 adaptation
 
-Температурная CRITICAL и окна измерений пока не сохраняются при рестарте/reload. При старте состояние оценивается по текущим данным. Автоматического определения внутренней неисправности компрессора по тренду температуры пока нет; unavailable означает потерю доступности, не доказанную поломку. Уровень заряда и остаточное время UPS в этой версии не управляют нагрузками. Команд UPS/EPO/пожарному контроллеру нет.
+At WARNING during confirmed AC operation, a downward step is proposed. After its command is confirmed, the existing AC target field is updated without a reload. A single episode cannot repeatedly decrement; a new episode needs cooling to WARNING−1 °C and a later rise. There is no automatic upward learning.
 
-## Отображение в HA
+Cold-inlet assistance can temporarily command a lower value. That value is not the permanent learned target. Both paths respect device min_temp and setpoint resolution. Watch adaptation_requested, command_confirmed, and adaptation_saved; the latter proves the persistent setting update. A temporary command confirmation alone does not.
 
-Ранние файлы 0.1.0 объявляли тип helper, из-за чего запись попадала в «Помощники». В актуальном manifest указан service. После обновления и перезапуска используйте обычный список интеграций. Сущности автоматически на дашборд не добавляются.
+## Diagnostics and INFO logging
 
-Папку `brand/` переносите вместе с интеграцией. Локальные логотипы поддерживаются HA с версии 2026.3: [документация](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
-
-## Журнал испытаний 0.2.1
-
-В «Decision reason» доступны `input_issues` (роли проблемных входов) и `last_command` (последняя отправленная команда, время UTC, статус sent/awaiting_readback/confirmed/service_failed). Имя роли `climate` означает кондиционер, `vent_enable` — разрешение терморегулятора, `vent_output` — ВУ. Старые ключи trm/bolid обозначают основной и резервные датчики независимо от производителя.
-
-Кнопка **Download diagnostics** содержит последние 100 событий текущей загрузки: изменения качества входов с возрастом публикации и пределом, изменения решений, состояния исполнения, отправки команд, завершения сервисов и подтверждения readback. Отчёт также содержит текущие возраста всех назначенных входов и оставшиеся выдержки `wait_remaining`. Успешный сервис и подтверждение прибором — разные события. История ограничена памятью и сбрасывается при перезапуске/reload; при интересующем эпизоде скачайте её до перезапуска.
-
-Для текстового журнала включите **Enable debug logging** у интеграции до наблюдения, затем выключите и сохраните предложенный HA файл. События SRCC пишутся на уровне INFO, ухудшение качества входов и ошибки — WARNING. На неизменном состоянии повторов раз в секунду нет. В экспортируемых событиях используются роли, а не адреса/исходные entity IDs; сырые attributes не копируются. Диагностика не включает файлы или состояния чужих интеграций.
-
-Версия 0.2.1 расширяет диагностику, не меняя стратегии или выдержек управления. Межсезонные сценарии проверяются на имитации данных; рабочие датчики не подменяются.
-
-Подробные правила: [BEHAVIOR.md](BEHAVIOR.md). Подтверждённые результаты и ожидающие испытания: [VALIDATION_PLAN.md](VALIDATION_PLAN.md); программные проверки: [TEST_CATALOG.md](TEST_CATALOG.md).
-
-
-## Допуск кондиционера в 0.2.3
-
-`ac_max_age` / «Максимальный возраст публикации кондиционера» — отдельный предел, по умолчанию **180 s**, включая обновление существующей конфигурации без этого поля. Он применяется к режиму и уставке climate; общий max_age температур, UPS, вентиляции и отдельного fault не меняется. Публикация возрастом ровно 180 s ещё свежая, старше — stale. unavailable/unknown обрабатываются сразу. Время публикации не подменяется; старое состояние не подтверждает новую команду. С 0.2.5 подтверждение AC ожидается отдельно до 180 s; сервисный вызов и readback вентиляции — до 30 s по умолчанию. На рабочий HA изменение вступит после обновления файлов и перезапуска.
-
-## Фикс 0.2.5: ожидание команд AC
-
-Новая настройка «Ожидание подтверждения команды кондиционера» (`ac_readback_timeout`) по умолчанию 180 s, применяется и к существующим исполнительным конфигурациям без этого поля. Ожидание начинается с выдачи команды. Для AC OFF, COOL и изменения уставки используется этот предел; вызов сервиса HA и подтверждение вентиляции сохраняют `command_timeout` (30 s по умолчанию). `ac_max_age=180 s` отдельно определяет свежесть опубликованных состояний.
-
-До readback следующая команда не выдаётся. Смена решения/питания не удаляет незавершённое ожидание. При отсутствии подтверждения фиксируется READBACK_TIMEOUT без повторов; поздняя публикация сама ошибку не снимает. После устранения причины требуется выключить и включить Automatic control. Увеличение времени не доказывает физическое исполнение и не исправляет unavailable. Нужен повторный аппаратный тест команды с журналом.
-
-## Обновление 0.2.6
-
-Команды режима и температуры AC разделены с отдельным подтверждением каждого шага. После установки проверьте «Ожидание подтверждения команды кондиционера»: новый начальный предел 3 s, ранее сохранённые 180 s автоматически не заменяются. Для согласованного испытания выберите 3 s. Возраст публикации AC (`ac_max_age`) оставьте 180 s — это другая настройка. При слишком медленном подтверждении будет явный READBACK_TIMEOUT, без автоматических повторов.
-
-Сохраните диагностику старого сбоя до reload. Затем обновите всю папку интеграции и перезапустите HA. При активном управлении и свежем COOL измените уставку 22→23 один раз, запишите фактическое время возврата и события command_sent/service_completed/command_confirmed. Программные тесты не подтверждают поведение устройства.
-
-## Постоянный INFO-журнал действий
-
-SRCC уже пишет успешные действия на INFO. Если HA фильтрует их общим уровнем WARNING, предупреждения видны, а действия — нет. Для текущего сеанса выполните в «Инструменты разработчика → Действия»:
-
-```yaml
-action: logger.set_level
-data:
-  custom_components.fourvrs_server_room: info
-```
-
-Для сохранения после перезапуска добавьте в существующий раздел logger файла configuration.yaml (не создавайте второй одноимённый раздел):
+The device page groups the integration entities. Decision reason attributes contain the execution phase, reason, error, pending command, and input issues. Download diagnostics from the device page for a bounded, sanitized view.
 
 ```yaml
 logger:
+  default: warning
   logs:
     custom_components.fourvrs_server_room: info
 ```
 
-Сохраните другие настройки logger. Постоянная настройка применяется после проверки конфигурации и перезапуска HA; действие выше включает INFO сразу. Предыдущие отфильтрованные записи в текстовом журнале не восстанавливаются.
+A clean WARNING log does not show successful INFO-level commands. The controller logs dispatch, service completion, and equipment confirmation separately.
 
-В полном журнале Core ожидается command_sent (действие, сервис и параметры), service_completed (сервис вернулся), command_confirmed (новый readback, elapsed_s) и execution с phase COMPLETE. При переходе COOL→уставка видны две отдельные последовательности подтверждений. Успешный сервис не равен подтверждению устройства. В неизменном состоянии сообщения раз в секунду не пишутся. Download diagnostics дополнительно содержит последние 100 событий независимо от уровня текстового журнала. Сводка ошибок интерфейса HA не заменяет полный журнал Core.
+Voice preferences and reminders default OFF. Configure them through [Voice notifications](VOICE_NOTIFICATIONS.md). Notification maintenance affects speech only. Documentation language links do not change the current Russian speech strings.
 
-Источник: [Home Assistant Logger](https://www.home-assistant.io/integrations/logger/).
+## Limits
 
-
-## Обновление до 0.6.0
-
-После замены файлов интеграции перезапустите HA. Переустановка записи не нужна. Параметр minimum_ac_off удалён из формы, старое значение игнорируется. Тайм-аут подтверждения Haier (35 секунд) и пределы свежести данных не изменяйте для отключения паузы: они выполняют другую задачу. При перегреве причина решения — THERMAL_RESERVE_AC; команды по-прежнему ожидают подтверждения. После установки проверяются версия, сохранённое состояние Automatic control и отсутствие ошибок загрузки.
-
-
-## Обновление до 0.7.0
-
-Замените файлы интеграции и перезапустите HA. Пример настройки для версии 0.7.0: минимум AC −15 °C, AC → вентиляция −4 °C, вентиляция → AC −2 °C, уставка AC 22 °C, восстановление стойки 27 °C. Отрицательные пороги теперь проходят проверку формы и исполнителя. Сохранённый прежний hard-min автоматически не заменяется.
-
-Поля длительности восстановления 120 секунд больше нет. Возраст публикации и тайм-аут подтверждения команды (в профиле Haier 35 секунд) не относятся к восстановлению температуры и сохраняются. Проверьте атрибуты Decision reason: ac_measured_temperature, ac_recovery_target, rack_recovery_limit. Для восстановления требуется фактическая температура AC; при её отсутствии таймер не используется как замена измерения.
-
-
-## Обновление непосредственно с 0.6.0 до 0.7.1
-
-Установка промежуточной 0.7.0 не нужна. Замените каталог интеграции и перезапустите HA. Сохранённые пороги не заменяются автоматически. Для текущего испытания задайте: ac_hard_min −6 °C, ac_to_vent −4 °C, vent_to_ac −2 °C, ac_target 22 °C. Поле «Поправка температуры стойки к уставке AC для восстановления» (rack_recovery_offset) начинается с 0 °C; окончательное значение выбирается по установившейся температуре стойки, а не датчику Haier. Пока оно не измерено, не принимайте пример +2 °C за готовую настройку. Цель восстановления должна оставаться ниже WARNING.
-
-Отсутствие снятия CRITICAL при недостижимой для верха стойки цели требует калибровки поправки; это не выключает кондиционирование. Даже после достижения цели автоматического возврата на вентиляцию после температурного инцидента нет. Для нового испытания после анализа причин: Automatic control OFF, затем ON. Reload не сбрасывает блокировку. При уже выросшей температуре WARNING ранний переход требует собранной выборки роста; при CRITICAL он не ждёт выборку.
-
-
-## Обновление до 0.7.2
-
-Замените файлы интеграции и перезапустите HA; пересоздание записи не требуется. Версия включает исправления 0.7.1. Новых обязательных настроек нет. При CRITICAL свежая температура у AC позволяет временно снизить уставку в пределах устройства. В Decision reason проверяйте active_ac_target и emergency_ac_target, в INFO-журнале — emergency_ac_target, command_sent и command_confirmed. После температурного восстановления возвращается штатная уставка, но блокировка повторной попытки вентиляции сохраняется. Проверка на оборудовании ещё предстоит.
-
-
-## Обновление до 0.7.3
-
-Замените файлы интеграции и перезапустите HA. Настройки сохраняются, пересоздание записи не требуется. Теперь временная уставка применяется уже выше настроенного WARNING при разрешённом кондиционировании. Проверьте цель восстановления по стойке: штатная уставка AC плюс настроенная поправка, ограниченная critical_recovery. Примерные значения не заменяют калибровку горячей точки стойки.
-
-
-## Обновление до 0.8.0
-
-Замените файлы интеграции и перезапустите HA. Пересоздание записи не требуется. При включённой автоматике постоянная адаптация вниз применяется при WARNING в режиме кондиционирования. После подтверждения новое значение видно в прежнем поле уставки. Повышение отсутствует. Проверяйте INFO adaptation_saved, командные подтверждения и фактическую температуру стойки.
+SRCC does not manage UPS battery load, EPO, or fire suppression. Fan output does not prove airflow. A working climate entity does not prove absence of internal AC faults. Generic timing must match upstream behavior. Seasonal transitions, power recovery, sensor failures, and learned setpoint changes need separate field acceptance.

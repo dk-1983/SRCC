@@ -1,68 +1,28 @@
-# Разработка и воспроизводимость SRCC 0.2.1
+[**English**](DEVELOPMENT.md) · [**Русский**](DEVELOPMENT_RU.md)
 
-Дополнение 0.4.0: [клиент голосового центра и таблица событий](VOICE_NOTIFICATIONS.md), [публичный контракт v1](VOICE_PROTOCOL_V1.md). Приёмник Home Control ещё не реализован. Прогон 2026-09-29: **149 PASS (73 автономных + 76 HA)**, 16 новых методов в tests/ha/test_voice.py; hassfest: 0 invalid. Ниже сохранены исторические срезы.
+# Development and reproducibility
 
-Дополнение 0.3.0: [профиль Haier ESP v1.3.0](HAIER_TELEMETRY.md) описывает новые настройки, подтверждение команд и границы свежести. Текущий прогон 0.3.1 от 2026-09-27: **133 PASS (73 автономных + 60 HA)**. Исторические срезы ниже сохранены; совместная проверка нового профиля с рабочим MQTT/ESP ещё не выполнена.
+Current release: 0.8.0. Software baseline: **95 standalone + 106 HA tests = 201 passed**, with hassfest reporting one integration and zero invalid. See [test catalog](TEST_CATALOG.md), [validation](VALIDATION_PLAN.md), and [architecture](ARCHITECTURE.md).
 
-Код проверенного среза: `0cb8100`, дата 2026-09-22. Текущее поведение описано в BEHAVIOR.md, архитектурные границы — в ARCHITECTURE.md. Реестр доказательств — VALIDATION_PLAN.md, полный список пройденных методов — TEST_CATALOG.md.
+The HA test environment used HA 2026.9.2 and Python 3.14.5 inside a local hassfest image. The standalone tests used local Python. The `latest` Docker tag is mutable; check the actual local image before comparing environments. The historical tested image ID was `sha256:d13ffcc8995c1217804fe355ed078a81d3028b7002355bc5d89d19d9075d63c7`, not a guaranteed registry digest.
 
-## Модули
-
-| Модуль | Ответственность |
-|---|---|
-| core/models.py | Sample, Snapshot, Config, режимы, качества и валидация |
-| core/inputs.py | Приоритет основного, один/два резерва, среднее и skew |
-| core/severity.py | WARNING/CRITICAL и выдержка восстановления со снижением |
-| core/health.py | Пять новых минутных выборок и тренд вентиляции |
-| core/policy.py | Нормальный гистерезис, резерв, hard-min и выбор кандидата |
-| core/timing.py | Выдержка кандидата и dwell |
-| core/transitions.py | Последовательные намерения и ожидания readback |
-| ha_inputs.py / runtime.py | HA-состояния, единицы, часы, подписки, watchdog и резервные выборки |
-| execution.py | Единственная задача сервисов, поколения, ошибки и остановка |
-| switch.py | Сохранение выбора ON/OFF; новое согласование после загрузки |
-| sensor.py / binary_sensor.py | Наблюдение, решение, этап исполнения и диагностика |
-| telemetry.py / diagnostics.py | Ограниченный журнал и обезличенный экспорт |
-| configuration.py / config_flow.py | Валидация, UI и полная замена options |
-
-## Проверенный прогон
-
-| Набор | Число | Среда | Итог |
-|---|---:|---|---|
-| tests/test_core.py | 38 | Python 3.11.4 | PASS |
-| tests/test_ha_inputs.py | 10 | Python 3.11.4 | PASS |
-| tests/test_observer.py | 8 | Python 3.11.4 | PASS |
-| tests/test_timing.py | 4 | Python 3.11.4 | PASS |
-| tests/test_telemetry.py | 1 | Python 3.11.4 | PASS |
-| tests/ha/test_runtime.py | 12 | HA 2026.9.2 / Python 3.14.5 | PASS |
-| tests/ha/test_execution.py | 21 | HA 2026.9.2 / Python 3.14.5 | PASS |
-
-Локальный образ `ghcr.io/home-assistant/hassfest:latest` на момент прогона имеет ID `sha256:d13ffcc8995c1217804fe355ed078a81d3028b7002355bc5d89d19d9075d63c7`. Тег latest изменяемый; указанный ID фиксирует фактически использованный локальный образ, не обещает доступность его registry digest. Hassfest: 1 интеграция, 0 invalid.
-
-## Команды из корня репозитория
-
-Автономные тесты:
+## Checks from the repository root
 
 ```powershell
 python -m unittest discover -s tests -v
-```
-
-Локальные HA-тесты, после подготовки Docker-образа и папки временных файлов:
-
-```powershell
 New-Item -ItemType Directory -Force .local | Out-Null
 docker run --rm --network none --mount "type=bind,source=$($PWD.Path),target=/repo" -e PYTHONPATH=/repo:/usr/src/homeassistant --workdir /repo --entrypoint python ghcr.io/home-assistant/hassfest:latest -m unittest discover -s tests/ha -v
 docker run --rm --network none --mount "type=bind,source=$($PWD.Path),target=/github/workspace,readonly" ghcr.io/home-assistant/hassfest:latest
 ```
 
-Образ используется как локальная тестовая среда с исходниками HA. Запуски без сети, рабочий экземпляр HA не затрагивается. HA-тесты используют реальные states, services, events, реестры и загрузчик платформ; имитируются устройства и ответы сервисов. Поэтому PASS не доказывает, что конкретный драйвер прибора возвращает физический readback.
+Prepare the image before running offline checks. HA tests use real states, services, events, registries, and platform loading, but simulate equipment and selected transport responses. They do not contact the production HA installation. Passing tests do not prove a physical driver's readback semantics.
 
-## Правила проверки изменений
+Policy changes need boundary and sequence tests. Execution changes need service-order, readback, missing-data, failure, and disable-during-action tests. Lifecycle changes need reload/unload coverage. UI/manifest/translations need hassfest and platform loading. Notification changes must remain isolated from cooling and must not leak raw source data.
 
-Изменение policy требует проверки границ и последовательностей температур. Изменение исполнения требует проверки порядка сервисов, ожиданий readback, потери данных, ошибок и выключения автоматики. Изменение lifecycle требует unload/reload при активной задаче. UI/manifest/translations проверяются hassfest и загрузкой платформ. Диагностика проверяется на ограничение объёма, отсутствие повторов и утечки идентификаторов.
+Use simulated time for long scenarios. Many service-order tests set seasonal waits to zero; they do not replace real timing acceptance. Preserve the distinction between software PASS, visual observation, a state photograph, and a fully timestamped equipment trace.
 
-Использовать искусственное время для длительных сценариев, а не реальные ожидания на минуты/часы. Полный межсезонный сценарий с ненулевыми выдержками пока включён в план N02; существующие короткие исполнительные тесты часто обнуляют выдержки, чтобы отдельно проверить порядок сервисов.
+## Documentation and release packaging
 
-Локальные сырые результаты и исследовательские материалы хранить в игнорируемой `.local/`. В публичных docs размещать спецификацию, воспроизводимые команды и обезличенные протоколы, не личные заметки или дампы установки. Программный PASS, результат визуального наблюдения, фотография состояния и доказанная физическая последовательность имеют разные уровни подтверждения.
+English pages use the standard `.md` name; Russian counterparts use `_RU.md`. Each has reciprocal language links. Russian pages retain detailed historical records; current behavior is defined by the newest version sections. Keep public content technical and reproducible; raw logs and scratch work belong in ignored `.local/`.
 
-
-Обновление 0.2.2: сохранение выбора автоматики проверено четырьмя дополнительными HA-тестами (ON после остановки, ручное OFF, отсутствующие входы, отключённый профиль). Всего 98 тестов: 61 автономный и 37 HA. Проверка на физическом объекте после обновления ещё требуется.
+An installation ZIP contains only tracked files under `custom_components/fourvrs_server_room`, preserving that path. It must exclude caches, logs, local settings, credentials, and working notes. GitHub source archives include the public repository and bilingual documentation. Release version must match both manifest.json and const.py; record test results and field limitations in release notes.

@@ -1,80 +1,50 @@
-# Голосовые события SRCC 0.5.0
+[**English**](VOICE_NOTIFICATIONS.md) · [**Русский**](VOICE_NOTIFICATIONS_RU.md)
 
-Оповещения описывают существующие решения SRCC и не управляют оборудованием. Поддерживаются все настроенные роли: температура стойки и улицы, ноль/один/два резервных датчика, разрешение вентиляции, выход вентилятора, climate, отдельный fault или телеметрия Haier, оба сигнала UPS (в том числе APC).
+# Voice notifications
 
-## Источник и текст
+SRCC publishes one process through the external v1 interface of [Home-Control](https://github.com/dk-1983/Home-Control), my apartment automation project containing the voice center. Equipment control does not depend on the center. See the [protocol contract](VOICE_PROTOCOL_V1.md).
 
-Каждое сообщение начинается с «Климат серверной». Далее названы оборудование/роль, причина и, где установлено алгоритмом, последствие. Используется friendly_name выбранной сущности HA, до 60 символов, с нормализацией пробелов. Если имени нет, остаётся понятная роль. ТРМ, «Болид» и APC не зашиты как обязательные марки оборудования.
+Configure voice_info, voice_warning, voice_error, and voice_repeat independently; all default OFF. Repeats require voice_error and voice_repeat. voice_area identifies the process area, otherwise the SRCC device area is used. **Notification maintenance (cooling unchanged)** is persistent and does not change Automatic control. Failed restoration of maintenance state keeps speech disabled.
 
-Например: «Климат серверной. Основной датчик температуры стойки “Температура шкафа”: данные не обновляются. Для управления используется резервный датчик температуры № 2 “Верх шкафа”».
+The documentation is bilingual. Generated spoken text in 0.8.0 remains Russian; changing documentation language does not localize speech.
 
-Один source domain/config_entry_id/process_id=climate сохраняется при замене оборудования. Название записи и помещение передаются центру отдельно. Обновление не меняет [публичный протокол v1](VOICE_PROTOCOL_V1.md): центр получает key/level/message/active/resolved. Проверка фактической речи, возможного повторения названия центром и маршрутизации остаётся частью совместной приёмки.
+## Event levels
 
-## INFO, WARNING, ERROR
-
-| Событие / key | Условие и уровень |
+| Key | Meaning |
 |---|---|
-| temperature_high | WARNING при температурном предупреждении; ERROR при критической защёлке; потеря показаний не снимает прежнюю тревогу |
-| input_<role> | WARNING с конкретным входом и качеством: stale — не обновляется, unavailable — недоступен, unknown — неизвестен, invalid — недостоверен, unverified — ожидает подтверждения |
-| temperature_source | WARNING при использовании резерва: среднее двух именованных датчиков либо конкретный одиночный; ERROR при отсутствии температуры стойки с включённой автоматикой, WARNING при ручном режиме |
-| ac_fault | ERROR по достоверному сигналу неисправности, с именем кондиционера и кодом Haier при его наличии; unknown не снимает прежнюю неисправность |
-| ventilation_ineffective | ERROR по уже установленному температурным трендом признаку; это не утверждение о физической поломке вентилятора |
-| equipment_conflict | ERROR по противоречивой обратной связи охлаждения/вентиляции; unknown не доказывает устранение |
-| power_supply | WARNING: отдельно работа UPS от батареи, неизвестное питание, противоречие сигналов; указаны источники и непригодный сигнал |
-| cooling_unavailable | WARNING при отсутствии пригодного способа охлаждения; ERROR при urgent решении контроллера |
-| action_deferred | WARNING при реальной блокировке/ожидании внешней команды; ERROR при urgent. Текст сообщает конкретное запрещённое действие и причину |
-| execution_failure | ERROR: причина исполнения и конкретное действие — COOL, OFF, уставка, ВУ или разрешение вентиляции. Исполнение остановлено |
-| normal_wait | Одноразовый INFO при входе в штатную выдержку условий или компрессора; остаток секунд не создаёт новых сообщений |
-| mode_changed | INFO только после подтверждённой команды и COMPLETE. Промежуточный OFF сезонного перехода не озвучивается |
-| target_restored | INFO о подтверждённой уставке только после readback и COMPLETE |
-| key снятого события | Центру сначала передаётся resolved, затем разрешённый настройками INFO. Сброс ошибки/снятие блокировки не называется ремонтом или запуском оборудования |
+| temperature_high | WARNING at the rack warning threshold; ERROR while the critical latch is active. Missing measurements do not prove recovery. |
+| input_<role> | Named input with stale, unavailable, unknown, invalid, or unverified quality |
+| temperature_source | Identifies primary failure and the selected backup/average; ERROR when no usable rack reading remains with automation ON |
+| ac_fault | Confirmed AC fault, with device and code where available; unknown does not clear an existing fault |
+| ventilation_ineffective | Temperature-trend evidence, not proof of a broken fan |
+| vent_retry_locked | Automatic return to ventilation is held after a thermal incident/warming trend |
+| equipment_conflict | Contradictory cooling/ventilation feedback |
+| power_supply | UPS battery operation, unknown power, or conflicting signals with sources identified |
+| cooling_unavailable | No usable cooling method; ERROR for an urgent decision |
+| action_deferred | Real interlock/external-command wait and its reason; urgent conditions use ERROR |
+| execution_failure | Failed action and execution reason; execution stopped |
+| normal_wait | One INFO on entering a normal seasonal wait, not a message every countdown tick |
+| mode_changed | INFO after confirmed command and completed transition |
+| target_restored | INFO after setpoint confirmation; permanent adaptation reports previous/new values and persistence |
+| adaptation_limit | WARNING that no further permanent downward step is available |
+| Resolved issue | Explicit resolution first, then an optional one-shot INFO |
 
-Словарь `voice_details.py` расшифровывает исполнительные и политические причины, включая AC_OFF_UNPROVEN, VENT_DISABLE_UNPROVEN, VENT_OUTPUT_UNPROVEN, AC_HARD_MIN_BLOCK, AC_REQUIRES_MAINS, POWER_POLICY_REQUIRED и READBACK_TIMEOUT. Неизвестная ошибка не копируется в речь: выводится предложение проверить диагностику. Состояние BLOCKED оценивается по причине, а не смешивается со штатной выдержкой.
+Recovery, reset, or removal of a blocker is not described as proof of repair or equipment startup. Unknown reasons point to diagnostics rather than copying arbitrary exception text.
 
-## Дубли и кратковременные сбои
+## Duplicate suppression
 
-- Потеря **неиспользуемого** резервного датчика озвучивается после 20 секунд непрерывной проблемы. Пока используется резерв, его потеря передаётся сразу.
-- Снятие отдельной проблемы качества входа и возврат к основному температурному источнику требуют 20 секунд устойчивого восстановления. Это фильтр уведомлений; SRCC меняет источник и реагирует на оборудование без дополнительной задержки.
-- Критические события, блокировки и другие влияющие на управление потери передаются сразу. Температурные пороги, гистерезис и аварийная логика не изменены.
-- При Haier schema 1 climate/fault/telemetry используют один вход `input_ac_telemetry`: три одинаковых предупреждения не создаются.
-- Потеря основного датчика объединяется с сообщением о резервном источнике. Переход со среднего двух датчиков на один изменяет текст того же события.
-- Проблемы UPS объединяются с состоянием питания. Если вход непосредственно объясняет блокировку, его описание включается в сообщение блокировки. Смена группировки сама по себе не объявляется восстановлением.
-- Новые значения температуры, возраст публикации и отсчёт таймера не вставляются в текст активной проблемы каждую секунду. Неизменное событие повторно не публикуется.
-- Интервал напоминания активных ERROR, ночная тишина, очереди и маршрутизация остаются ответственностью Home Control.
+Unused backup sensor loss is delayed for 20 seconds; loss affecting control is reported immediately. Input recovery and return to the primary sensor require 20 seconds of stable recovery for notifications only. Cooling reacts without that notification delay.
 
-## Настройки и независимость
+Haier climate/fault/telemetry share one input_ac_telemetry event. Primary failure is grouped with the backup-source message; UPS input failures are grouped with power state. Regrouping is not reported as physical recovery.
 
-`voice_info`, `voice_warning`, `voice_error`, `voice_repeat` сохраняют прежнее назначение; все по умолчанию выключены. Повторы требуют voice_error и voice_repeat. `voice_area` задаёт помещение процесса, иначе используется помещение устройства SRCC.
+Active messages do not embed a changing temperature/age/countdown every second. Unchanged issues are not republished on every poll. ERROR reminder intervals, quiet hours, routing, queues, and volume belong to Home-Control. Disable voice_repeat to stop periodic reminders, not first occurrences or escalation from WARNING to ERROR.
 
-Переключатель «Обслуживание оповещений (охлаждение не изменяется)» сохраняется после перезапуска и отменяет ожидающие уведомления через центр. Он не меняет Automatic control. При ошибке загрузки настройки обслуживания речь остаётся выключенной. SRCC не включает колонки и не меняет настройки центра.
+An active critical latch can persist below the threshold until the configured rack recovery target is reached. A later spoken critical message is not evidence of a new threshold crossing. Use timestamped decision/voice_issue records and the receiver's playback history to distinguish a new event, a reminder, and delayed speech.
 
-Клиент изолирован от исполнительного контура: предел сервисного вызова 3 секунды, восстановление связи ограничено интервалом 60 секунд, lease 180 секунд. При недоступном центре управление продолжается. Исторические INFO после восстановления связи не воспроизводятся. Перерегистрация передаёт текущие проблемы.
+## Isolation and diagnostics
 
-## Поиск дефектов по журналу
+Calls run in a separate task with a 3-second timeout. Rejection, timeout, or center outage clears queued INFO and triggers a later registration with the current snapshot. Historical INFO is not replayed. Maintenance cancels pending speech through the center but cannot retract a service already in flight.
 
-При изменении активного события SRCC пишет INFO `voice_issue`: key, level, active и технический context. Это фиксация изменения события, **не доказательство произнесения колонкой**. Уровень лог-записи INFO не заменяет level голосового события.
+INFO-level `voice_issue` log records contain a semantic level, active flag, and bounded context: source integrations, input qualities, selected temperature source, decision, and execution phase/reason. The logger's INFO level does not turn an ERROR voice issue into an informational event. Source IDs and raw attributes are not copied into this context.
 
-В `voice.event_context` диагностического файла и в этих записях доступны:
-
-- execution_phase и execution_reason — этап и код причины исполнения;
-- decision_reason — код выбора способа охлаждения;
-- temperature_selection — основной/резервный источник;
-- input_qualities — качество по каждой роли;
-- source_platforms — интеграция-источник из реестра HA, например mqtt/modbus, если реестр и запись доступны.
-
-Это помогает отличить проблему источника данных, решений SRCC, исполнителя и доставки в центр. Названия комнат, аппаратные entity_id, MQTT-топики и произвольные тексты исключений в технический контекст не копируются. Доступность реестра не является условием доставки сообщения.
-
-```yaml
-logger:
-  default: warning
-  logs:
-    custom_components.fourvrs_server_room: info
-```
-
-## Приёмка
-
-Программные проверки: **177 PASS (86 автономных + 91 HA)**; hassfest — 0 invalid.
-
-Автоматические проверки используют настоящие события/сервисы HA с фиктивным центром и имитацией оборудования. Отдельные тесты проверяют все роли, смену источников, фильтры времени, UPS, словарь блокировок, INFO после readback, ограничение 500 символов и технический контекст.
-
-На рабочей HA после установки требуется проверить: название источника в речи без лишнего повторения; потерю/возврат одного резервного датчика; различимость UPS и температурных событий; коррекцию уставки; сообщение о выдержке компрессора. Потери питания и реальные неисправности сначала воспроизводят на стенде. Обновление SRCC не устанавливает изменения центра и не доказывает акустическую доставку.
+The mock receiver tests the producer contract, not actual speaker output. Real speech latency and receiver queue behavior require joint observation.

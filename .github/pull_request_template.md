@@ -1,11 +1,11 @@
-## Проблема и результат
+## Problem and result
 
-Опишите, какую проблему решает изменение и как меняется поведение.
+Describe the problem and resulting behavior.
 
-## Проверка
+## Validation
 
-Укажите выполненные проверки и их результат. Отдельно обозначьте невыполненные проверки.
+List completed checks and results. Identify checks not performed.
 
-## Влияние на управление
+## Control impact
 
-Если применимо: guards, readback, UPS, manual, восстановление после перезапуска и изменённые параметры. Дайте ссылку на обновлённую документацию.
+Where applicable, cover interlocks, readback, UPS, manual control, restart recovery, and changed settings. Link updated documentation.

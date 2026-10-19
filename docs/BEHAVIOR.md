@@ -1,217 +1,77 @@
-# Реализованное поведение SRCC 0.3.0
+[**English**](BEHAVIOR.md) · [**Русский**](BEHAVIOR_RU.md)
 
-## 0.8.0 — постоянная адаптация только в сторону снижения
+# Implemented behavior — SRCC 0.8.0
 
-При достижении настроенного WARNING во время подтверждённого кондиционирования SRCC предлагает уменьшить сохранённую уставку на 1 °C. Для устройств с иной сеткой значение приводится к допустимому шагу и ограничивается min_temp. После подтверждения именно этой уставки она записывается в существующее поле ac_target; форма настроек показывает новое значение. Остальные настройки сохраняются, reload при внутренней записи не выполняется. Автоматического повышения нет.
+This describes current behavior. [Changelog](../CHANGELOG.md) records superseded designs; older values must not be treated as current defaults. Field evidence and remaining work are in [Validation](VALIDATION_PLAN.md).
 
-Один эпизод даёт один постоянный шаг. Новая попытка разрешается после достоверного охлаждения до WARNING − 1 °C и повторного достижения WARNING. Пропуск данных не снимает блокировку. Признак обработанного эпизода сохраняется перед отправкой команды и восстанавливается при reload/рестарте. При прерывании неподтверждённой адаптации старая постоянная уставка остаётся; повторного шага в этом эпизоде нет. Ручное изменение поля доступно обычным способом.
+## Control and observation
 
-Если после вентиляции воздух около AC холодный, постоянного шага может не хватить для запроса охлаждения. Временно используется более низкая уставка по свежему датчику AC, с разницей минимум 1 °C и округлением по сетке устройства. Пример: сохранено 22, кандидат постоянной уставки 21, датчик AC 18,5, шаг 1 → временно 17 °C. После достижения цели стойки (кандидат плюс поправка, ограниченные critical_recovery) отправляется 21 °C. Только подтверждённые 21 сохраняются; временные 17 не записываются как постоянная настройка. При CRITICAL аварийный алгоритм сохраняется и сам по себе не обучает постоянную уставку.
+New entries start in observation mode. Commands require the command profile, confirmed equipment feedback semantics, and Automatic control ON. ON/OFF survives reload/restart; each startup reconciles current inputs rather than replaying old commands. Disabling the command profile clears stored ON.
 
-Для Haier с min_temp 16 обе команды ограничены 16 °C. При достижении минимума дальнейший постоянный шаг не выполняется, выдаётся WARNING. Если датчик AC холоднее минимума, запрос уставки не гарантирует запуска компрессора. Наружный запрет, питание, неисправности, свежесть и последовательные подтверждения остаются обязательными.
+Turning Automatic control OFF stops new commands. It does not turn devices OFF, restore C.dr=1, or cancel a command already delivered.
 
-INFO adaptation_requested / adaptation_saved показывают предложение и сохранение; adaptation_limit — WARNING. Голосовое подтверждение постоянного снижения содержит прежнее и новое значения и причину. Диагностика показывает adaptation_pending, adaptation_episode_closed и boost_recovery_target.
+## Temperature and input quality
 
-Описания предыдущих версий ниже применяются с учётом изменений 0.8.0.
+The primary rack sensor and outdoor sensor are required. Backup sensors are optional and sampled once per minute; loss of availability is processed immediately. A valid primary takes priority. Two valid time-aligned backups are averaged. A single valid backup can be used with a degradation warning. Missing all usable rack readings blocks decisions; no synthetic temperature is substituted.
 
-## Дополнение 0.7.3: раннее усиление охлаждения кондиционером
+Temperature units are normalized. Unknown, unavailable, restored, invalid, and stale values are not trusted readback. The one-second watchdog checks age; it does not poll hardware or call update_entity. Generic HA publication time is evidence of publication, not proof of physical measurement. Haier uses its own [UART freshness contract](HAIER_TELEMETRY.md).
 
-При превышении настроенного WARNING или активном критическом перегреве, если выбран разрешённый режим кондиционирования, SRCC однократно рассчитывает временную уставку по свежей измеренной температуре у кондиционера. Она не выше штатной уставки и на 1 °C (или один шаг устройства, если он больше) ниже измерения. Значение округляется вниз по сетке устройства и ограничивается его минимальной температурой. Например, при измерении 21,5 °C, штатной уставке 22 °C и шаге 1 °C запрос составит 20 °C.
+## Normal selection
 
-Уставка не следует за каждым последующим снижением температуры: она фиксируется до достижения цели восстановления по стойке, даже если температура уже ниже WARNING. Недостоверное показание стойки не доказывает восстановление. При точном равенстве WARNING новый запрос снижения не возникает. После восстановления по датчику стойки возвращается штатная уставка. Порог восстановления использует штатную уставку и поправку стойки, а не аварийное значение. Блокировка повторного возврата на вентиляцию сохраняется.
+Defaults are vent_to_ac=+1 °C, ac_to_vent=−1 °C, and ac_hard_min=−15 °C. Negative thresholds are allowed, with strict ordering `ac_hard_min < ac_to_vent < vent_to_ac`. AC is allowed at its lower boundary and blocked below it. Existing installation settings are preserved on upgrade.
 
-Без свежей температуры или корректных min_temp, max_temp, target_temp_step используется штатная уставка; расчёт повторяется при поступлении данных. Временное значение хранится в памяти и после reload рассчитывается заново при наличии условий раннего усиления охлаждения. Если после reload температура уже ниже WARNING, временное значение не восстанавливается из памяти предыдущего запуска. Оно не отменяет проверки питания, ошибок, нижней наружной температуры и подтверждения команд. Снижение уставки запрашивает охлаждение, но не гарантирует немедленный запуск компрессора: им управляет сам кондиционер.
+At/above vent_to_ac, choose usable AC; at/below ac_to_vent, choose usable ventilation if not locked out. Inside the band, preserve a usable current mode. With unknown mode, both methods usable, and temperature strictly inside the band, initial preference is ventilation.
 
-В Decision reason и диагностике доступны active_ac_target и emergency_ac_target. INFO emergency_ac_target показывает изменение расчётной уставки; command_sent и command_confirmed отдельно показывают отправку и подтверждение.
+A lower outdoor temperature alone does not prove ventilation can cool the rack. The backup-ventilation outdoor limit of +10 °C is separate from seasonal thresholds.
 
-Дополнение 0.4.0: [клиент голосового центра и таблица событий](VOICE_NOTIFICATIONS.md), [публичный контракт v1](VOICE_PROTOCOL_V1.md). Приёмник Home Control ещё не реализован. Настройки оповещений не меняют алгоритм охлаждения.
+## Commands and readback
 
-Дополнение 0.3.0: [профиль Haier ESP v1.3.0](HAIER_TELEMETRY.md) описывает новые настройки, подтверждение команд и границы свежести. При его выборе правила этого профиля имеют приоритет над описанием чтения обычного climate ниже.
+AC transition: C.dr=0 → confirm → fan output OFF → confirm → COOL → confirm → setpoint correction if needed → confirm. Mode and temperature are separate commands. Ventilation transition: AC OFF → confirmation or valid unpowered evidence → enable automatic ventilation. Backup ventilation uses C.dr=0 and direct output commands.
 
-Дата сверки: 2026-09-22, базовый код `0cb8100`, восстановление управления добавлено в 0.2.2. Документ описывает текущую реализацию и согласованный профиль исходной установки. Он не означает, что каждый сценарий испытан на физическом оборудовании. Доказательства и незавершённые проверки приведены в [VALIDATION_PLAN.md](VALIDATION_PLAN.md).
+The TRM output switch provides feedback in automatic mode as well as manual control in C.dr=0. Electrical output feedback does not prove airflow. A different controller needs equivalent normalized semantics.
 
-## Назначение и режим включения
+A completed HA service call is not equipment confirmation. Missing readback produces an execution error. Outstanding confirmation is retained across requested-mode/power changes. Generic errors require investigation and a new OFF→ON reconciliation; Haier command-ID conflicts have their own bounded reconciliation path.
 
-Основная задача — межсезонный выбор между автономной вентиляцией и охлаждением кондиционером. Резервные и аварийные алгоритмы дополняют этот выбор. SRCC получает данные из существующих сущностей Home Assistant; транспортами Modbus/Wi-Fi занимаются исходные интеграции.
+Normal selection uses condition_hold and minimum_dwell. Urgent recovery bypasses seasonal delays, but never power checks, the outdoor minimum, faults, fresh inputs, or interlocks. Maintaining a confirmed mode and restoring from confirmed IDLE do not wait for normal seasonal dwell. There is no additional SRCC compressor restart timer.
 
-При первой установке SRCC наблюдает. Для управления нужны исполнительный профиль и Automatic control. Начиная с 0.2.2 выбор ON/OFF сохраняется при restart/reload, включая изменение options. Восстановленное ON создаёт новый план по текущим входам; команды из предыдущего запуска не воспроизводятся. Отключение исполнительного профиля сбрасывает сохранённое ON. Ошибка чтения хранилища не разрешает команды.
+## Power and backup ventilation
 
-Выключение Automatic control запрещает последующие команды, но не выключает оборудование и не отменяет уже переданную команду. Например, если C.dr=0 и ВУ=ON, после выключения автоматики вентилятор остаётся в последнем состоянии, а ТРМ не возвращается к терморегулированию автоматически.
+In the documented installation the fan/TRM are UPS-backed; AC and its communication controller are not. Their mains supply is shared with the UPS input. Only with this wiring explicitly confirmed, consistent fresh UPS Online=off and On battery=on, and unavailable climate may AC be inferred unpowered. Fresh telemetry reporting an active AC overrides that inference. Availability alone never proves absence of an AC fault.
 
-## Входы и состав оборудования
+Returning mains invalidates unpowered evidence immediately. AC auto-restart may overlap with ventilation briefly; software does not provide a physical interlock.
 
-| Роль | Что используется | Обязательность |
-|---|---|---|
-| Основная температура | Температура помещения/стойки; приоритетный источник | Всегда |
-| Наружная температура | Выбор охлаждения и ограничения | Всегда |
-| Резерв 1 / резерв 2 | Независимые температурные sensor | Можно 0, 1 либо 2 |
-| Разрешение вентиляции | В исходном профиле C.dr=0/1 | Для управления |
-| Выход вентилятора | switch с реальным чтением ВУ | Для управления |
-| Кондиционер | climate с OFF/COOL и температурной уставкой | Для управления |
-| Fault кондиционера | Дополнительный binary_sensor ошибки | Необязателен |
-| UPS Online / On battery | Состояние внешнего питания и работы от батареи | Для управления |
+Initial backup thresholds are rack ON at 24 °C and OFF at 20 °C. Outdoor temperature must be below 10 °C and strictly below rack temperature, also meeting the configured minimum difference. This does not control UPS load shedding, EPO, battery charge, or remaining runtime.
 
-Температуры принимаются в °C, °F и K, в ядре — °C. Названия производителей не ограничивают температурные входы. Внутренние ключи trm/bolid и существующие коды источников оставлены для совместимости. Исполнительный профиль пока поддерживает именно разрешение 0/1: number либо switch, и отдельный switch выхода. Произвольные регистры, select, другие значения привязки и составы приводов автоматически не распознаются.
+## Alarms, recovery, and ventilation retry
 
-## ТРМ-138 и ВУ
+WARNING defaults to rack ≥26 °C; CRITICAL to ≥28 °C. Critical rack heat prioritizes usable AC regardless of the seasonal choice. The critical latch clears only on a fresh rack reading newer than critical entry and at/below `min(critical_recovery, ac_target + rack_recovery_offset)`. Initial critical_recovery is 27 °C; offset is 0 °C. The configured target plus offset must remain below WARNING. There is no 120-second recovery timer and the AC inlet sensor cannot clear rack overheating.
 
-В исходной установке C.dr=1 возвращает регулирование ТРМ, C.dr=0 снимает привязку и позволяет прямое управление выходом. Ноль C.dr сам по себе не доказывает выключение вентилятора. Для переключения нужны два отдельных readback: привязка снята и ВУ=OFF.
+A critical thermal incident sets a persistent ventilation-retry lock. It is also set before CRITICAL when automatic ventilation is confirmed active, a full five-minute trend is ready, both slope and total change are positive, and rack temperature reaches WARNING. This early rule does not require minimum_vent_rise.
 
-| Состояние привязки | Кто переключает вентилятор | Действия SRCC с ВУ |
-|---|---|---|
-| C.dr=1 | ТРМ по своим температурным уставкам | Чтение ON/OFF; сбор тренда при включённом выходе |
-| C.dr=0 подтверждён | SRCC, если включена его автоматика | Команды ON/OFF и чтение результата |
-| C.dr неизвестен/устарел | Право ручного управления не доказано | Прямое переключение не допускается |
+After recovery, `VENT_RETRY_LOCKED` keeps usable AC selected. Reload does not clear the lock. Explicit Automatic control OFF→ON permits another attempt, but a current critical condition can immediately reinstate the lock. This does not prohibit usable backup ventilation if AC cannot run.
 
-Выход ВУ подтверждает электрическое управляющее состояние, а не механическое вращение/расход воздуха. По руководству ТРМ138, таблица Б.2, страница 71, состояния ВУ 1–8 читаются по адресам 0–7 в группе функций 01/05; SRCC сам Modbus-запросы не формирует.
+The optional minimum_vent_rise separately defines meaningful rise over the observation window and can mark ventilation ineffective. Without it, a trend can still be displayed and the early WARNING rule above still operates. No active ventilation history means the trend remains unknown.
 
-## Штатное межсезонное переключение
+## Downward-only adaptation
 
-Таблица применима при наличии сети, пригодных входах и доступности требуемого оборудования. Смена кандидата ещё не означает отправку команды: дополнительно проверяются выдержки и readback.
+During confirmed AC operation, reaching WARNING proposes one permanent step down from the configured AC setpoint. It is nominally 1 °C, aligned to the device setpoint grid and limited by min_temp. Commands still pass normal eligibility and confirmation checks. Only confirmation of that proposed permanent target updates `ac_target` in the existing options field. There is no extra adapted-target setting and no upward learning.
 
-| Текущее подтверждённое охлаждение | Наружная температура | Выбор |
-|---|---|---|
-| Вентиляция | Ниже +1 °C | Сохранять вентиляцию |
-| Вентиляция | +1 °C и выше | Кондиционер |
-| Кондиционер | Выше −1 °C | Сохранять кондиционер |
-| Кондиционер | −1 °C и ниже | Вентиляция, если она пригодна |
-| Неизвестно; обе системы пригодны | Между −1 и +1 °C | Начальный выбор вентиляции |
+One uninterrupted episode produces only one permanent step. Rearm requires a trusted rack reading at/below WARNING−1 °C, with no pending proposal, followed by reaching WARNING again. Missing data does not rearm. Episode state is persisted before the command. A restart cannot cause another decrement for the same episode; an unfinished proposal is not replayed.
 
-Удержание относится к пригодному режиму. Если оборудование/данные непригодны, рассматривается другой маршрут или блокировка. В режиме вентиляции C.dr=1 не означает постоянную работу вентилятора: ТРМ включает его при 24 °C и выключает при 20 °C. SRCC не повторяет этот термостат в штатной ветке.
+At the device minimum, no further permanent decrement is made and adaptation_limit is reported. The field remains manually editable.
 
-**+10 °C — не порог штатного переключения.** Например, при снижении с +13 до +8 °C исправный AC остаётся выбранным. Порог +10 используется только для резервной вентиляции.
+## Temporary assistance for a cold AC inlet
 
-## Командные последовательности
+Ventilation may cool the inlet sensor while the rack remains hot. At WARNING or active CRITICAL, with AC selected, SRCC can calculate a one-shot temporary target at least 1 °C (or one device step if larger) below a fresh AC reading, never above the configured target and never below min_temp. It is rounded down on the device grid. The temporary value does not chase every subsequent falling reading.
 
-```mermaid
-flowchart LR
-    A[Выбран AC] --> B[Снять привязку]
-    B --> C[Подтвердить C.dr=0]
-    C --> D[Выключить ВУ]
-    D --> E[Подтвердить ВУ OFF]
-    E --> F[Проверить ограничения и паузу AC]
-    F --> G[COOL и уставка]
-    G --> H[Подтвердить режим и уставку]
-```
+Example: permanent target 22, proposed learned target 21, AC reading 18.5, step 1, minimum 16 → temporary command 17 °C. After the rack reaches the proposed permanent target plus rack offset, capped by critical_recovery, SRCC requests 21 °C. Only confirmed 21 is saved; temporary 17 is not learned. Without a permanent proposal, recovery uses the configured target instead. A critical episode alone does not create permanent learning.
 
-Для штатной вентиляции: OFF AC → новое подтверждение OFF → разрешение терморегулятора → подтверждение C.dr=1. Для резервной вентиляции: доказать OFF/обесточивание AC → подтвердить C.dr=0 → ON ВУ → подтверждение. Для остановки резерва выход переводится в OFF; полная последовательность IDLE также требует доказанного OFF/обесточивания AC.
+Missing valid temperature or device limits/resolution leaves the ordinary target in use. For Haier with a 16 °C minimum, neither temporary nor permanent requests go below 16. If the inlet is colder than that, a setpoint command cannot guarantee compressor start. The appliance retains its internal controls.
 
-С 0.2.6 COOL отправляется через `climate.set_hvac_mode`; после нового подтверждения COOL целевая температура отправляется отдельным `climate.set_temperature` без `hvac_mode`. Если COOL уже подтверждён, выполняется только коррекция температуры. Для OFF используется `climate.set_hvac_mode`. Допустимость COOL и диапазон уставки сверяются с attributes climate. С версии 0.2.4 коррекция уставки при уже подтверждённом AIR_CONDITIONING выполняется без сезонных hold/dwell; все проверки данных и оборудования остаются. Возврат из AUTO/OFF может требовать выдержки запуска AC; это отдельный случай.
+## Diagnostics and notifications
 
-Сервис и подтверждение — разные этапы. Подтверждение должно быть свежим, с публикацией позже отправки намерения. Команды сериализованы. Ошибка сервиса или тайм-аут фиксируются без бесконечных повторов. Повторное включение автоматики начинает согласование по текущим входам.
+Decision reason exposes execution_phase/reason/error, blockers, last_command, input_issues, rack_recovery_target, boost_recovery_target, active_ac_target, emergency_ac_target, adaptation_pending, adaptation_episode_closed, and vent_retry_locked.
 
-## Питание и резерв
+INFO events distinguish command_sent, service_completed, command_confirmed, adaptation_requested, adaptation_saved, and temporary-target changes. WARNING reports quality loss, conflicts, and limits. Voice ERROR denotes critical/execution conditions; it is separate from the Python logger level of the diagnostic voice_issue line.
 
-На исходной установке подтверждён общий внешний ввод AC и входа UPS. Кондиционер и его контроллер связи не имеют питания от UPS; ТРМ и вентилятор питаются от UPS. Профиль общего ввода включается отдельной настройкой и не переносится на другую установку без проверки схемы.
-
-| Сигналы | Вывод |
-|---|---|
-| Свежие Online=on, On battery=off | MAINS |
-| Свежий On battery=on | BATTERY; этого одного ещё недостаточно для доказательства обесточивания AC |
-| Подтверждён общий ввод; свежие Online=off, On battery=on; climate=unavailable | Допускается отдельное доказательство отсутствия питания AC |
-| climate=unavailable при наличии сети | AC недоступен; OFF не доказан |
-| Нет достоверной комбинации питания | UNKNOWN; обычный запуск блокируется |
-
-При возвращении сети или потере свежести доказательство обесточивания утрачивается. Авторестарт Haier подтверждён руководством (раздел 6, страница 36), но его фактическая задержка на установке ещё не измерена. На этой установке допускается краткое пересечение AC/вентиляции при возврате сети. SRCC устраняет расхождение после новых данных; аппаратное взаимное исключение не заявляется. Пока автоматика выключена, расхождение может отражаться как OTHER_CRITICAL; при включённой автоматике краткий конфликт сам по себе не считается температурной аварией.
-
-Резерв работает по гистерезису Tin: ≥24 °C — запрос ON, ≤20 °C — запрос OFF, между порогами удержание запроса. При первом определении запроса внутри полосы учитывается подтверждённое состояние ВУ. CRITICAL также создаёт срочный запрос. Дополнительно обязательны Tout<10 °C и Tout<Tin. Минимальная разность по исходному профилю 0 °C; равные температуры всё равно не допускают запуск. На +10 °C резерв уже запрещён.
-
-Батарея разрешает этот маршрут только при настроенных резервных порогах. При неработающем AC и наличии сети резерв также может рассматриваться, но для включения вентиляции по-прежнему требуется доказанный OFF AC. NO_COOLING_AVAILABLE не равен команде «выключить всё». Недостаток температур, питания или readback может оставить оборудование в последнем состоянии; потеря данных не даёт права выдумать его состояние.
-
-## Температурные источники и аварийность
-
-Основной датчик всегда приоритетен. При его отказе: один назначенный пригодный резерв используется напрямую; два пригодных — усредняются при допустимой разнице времени публикаций; один потерян из двух назначенных — используется второй с предупреждением. Если двух пригодных показаний нельзя согласовать по времени, достоверная резервная температура не формируется. Отсутствие неназначенного датчика не является отказом.
-
-Смена источника сбрасывает окно тренда и выдержку снятия CRITICAL. Температура ≥28 °C проверяется сразу, без ожидания пяти минут. При потере всех температур сохраняющаяся в памяти CRITICAL не снимается; новой числовой температуры не создаётся. При исправном основном датчике потеря резерва видна в журнале качества, но выбранный температурный источник остаётся основным.
-
-| Условие | Результат |
-|---|---|
-| Tin≥26 °C | WARNING |
-| Tin≥28 °C | Температурная CRITICAL |
-| После CRITICAL: Tin≤27 °C и измеренная температура AC≤уставки SRCC, оба измерения свежие и новее критического события | Снятие температурной фиксации; без таймера |
-| Плоская/растущая температура, превышение 27 °C, разрыв данных или смена источника | Выдержка не завершает снятие аварии |
-| Tout ниже настроенного ac_hard_min (новое начальное значение −15 °C) | Запуск AC запрещён; на самой границе разрешён |
-
-Срочность может обходить оптимизационные выдержки выбора, но не hard-min, подтверждения оборудования и минимальную выдержку AC. WARNING не имеет отдельного гистерезиса. Фиксация аварии хранится только до restart/reload; после старта оценка начинается с текущих данных.
-
-## Тренд вентиляции
-
-При свежих подтверждённых C.dr=1 и ВУ=ON начинается окно. Пять разных свежих измерений берутся на минутах 1, 2, 3, 4 и 5, затем окно скользит. Повторное чтение одной публикации не становится новым измерением. Выключение, плохие данные и смена источника сбрасывают окно.
-
-Положительный тренд и рост не меньше `minimum_vent_rise` позволяют предположить неэффективность. Без заданного порога показывается тренд, но автоматический отказ по росту не объявляется. В профиле пилота значение пока оставлено пустым. После выявления признак удерживается в памяти runtime; повторное включение автоматики сбрасывает его. Непрерывная оценка компрессора по температуре и отдельный датчик потока в этой версии не реализованы.
-
-## Параметры и происхождение значений
-
-| Параметры | Значения | Статус |
-|---|---|---|
-| Нормальный гистерезис | +1 / −1 °C | Согласован |
-| Уставка AC / hard-min | 22 / −15 °C | Граница запуска включительна; существующие сохранённые значения не заменяются |
-| Резерв ON/OFF / наружный предел | 24 / 20 / 10 °C | Согласованы; наружная граница строгая |
-| WARNING / CRITICAL / recovery | 26 / 28 / 27 °C | Восстановление дополнительно требует температуры AC не выше его уставки SRCC |
-| publication age / backup skew / sampling tolerance / recovery gap | 120 / 10 / 5 / 70 s | Предварительные настройки пилота, нужны реальные интервалы обновления |
-| timeout / condition hold / dwell | 30 / 30 / 300 s | Дополнительная пауза AC удалена в 0.6.0; предел подтверждения AC задаётся отдельно |
-| minimum_vent_rise | Не задан | Автоматическая оценка неэффективности по росту отключена |
-
-Период проверки runtime — 1 s, резервные выборки — раз в 60 s. Это чтение HA, не физический опрос контроллеров. `last_reported` отражает публикацию исходной интеграции, а не гарантирует измерение на приборе.
-
-## Состояния и диагностика
-
-11 sensors, 4 binary sensors и switch Automatic control. `Suggested cooling mode` — решение; `Reported cooling mode` — согласованная комбинация входных состояний; это разные понятия. HOLD_AC означает сохранение пригодного режима AC, а не факт новой команды. Controller degraded обозначает неполноту данных/решения либо ошибку/блокировку исполнения, а не обязательно физическую поломку.
-
-В Decision reason: этап исполнения, причина/ошибка, проблемные роли, последняя команда. В Download diagnostics: возраста входов, последние 100 событий UTC, оставшиеся выдержки. История сбрасывается при reload/restart. INFO-журнал включается через Enable debug logging; ухудшение качества и ошибки записываются на WARNING. Логи не являются автономным аудитом с сохранением между загрузками.
-
-Известная особенность 0.2.1: WAIT_TIMING может отображаться после достижения нужного состояния, поскольку таймер проверяется перед повторным подтверждением завершения. Это не доказывает новую команду; нужно смотреть readback и command_sent. В 0.2.4 исправлено для подтверждённого AIR_CONDITIONING; другие режимы по-прежнему требуют отдельной проверки.
-
-
-## Допуск кондиционера в 0.2.3
-
-`ac_max_age` / «Максимальный возраст публикации кондиционера» — отдельный предел, по умолчанию **180 s**, включая обновление существующей конфигурации без этого поля. Он применяется к режиму и уставке climate; общий max_age температур, UPS, вентиляции и отдельного fault не меняется. Публикация возрастом ровно 180 s ещё свежая, старше — stale. unavailable/unknown обрабатываются сразу. Время публикации не подменяется; старое состояние не подтверждает новую команду. С 0.2.5 подтверждение AC ожидается отдельно до 180 s; сервисный вызов и readback вентиляции — до 30 s по умолчанию. На рабочий HA изменение вступит после обновления файлов и перезапуска.
-
-## Фикс 0.2.5: ожидание команд AC
-
-Новая настройка «Ожидание подтверждения команды кондиционера» (`ac_readback_timeout`) по умолчанию 180 s, применяется и к существующим исполнительным конфигурациям без этого поля. Ожидание начинается с выдачи команды. Для AC OFF, COOL и изменения уставки используется этот предел; вызов сервиса HA и подтверждение вентиляции сохраняют `command_timeout` (30 s по умолчанию). `ac_max_age=180 s` отдельно определяет свежесть опубликованных состояний.
-
-До readback следующая команда не выдаётся. Смена решения/питания не удаляет незавершённое ожидание. При отсутствии подтверждения фиксируется READBACK_TIMEOUT без повторов; поздняя публикация сама ошибку не снимает. После устранения причины требуется выключить и включить Automatic control. Увеличение времени не доказывает физическое исполнение и не исправляет unavailable. Нужен повторный аппаратный тест команды с журналом.
-
-
-## Изменения 0.6.0: приоритет температуры стойки
-
-При достижении CRITICAL (по умолчанию 28 °C) доступный кондиционер выбирается с причиной `THERMAL_RESERVE_AC`, независимо от сезонного предпочтения вентиляции и настройки порога роста температуры. Приоритет удерживается температурной защёлкой: выход требует температуры не выше порога восстановления (27 °C), снижения и непрерывного окна восстановления (120 секунд). После восстановления снова применяется сезонная политика; это не доказательство устранения недостаточной эффективности вентиляции.
-
-Доступность кондиционера, отсутствие запрещающей ошибки, питание от сети и наружная температура строго выше −5 °C остаются обязательными. При невозможности использовать кондиционер температурная защёлка сама по себе не объявляет вентилятор неисправным и не запрещает пригодную вентиляцию. Потеря достоверной температуры не разрешает запуск по старому показанию.
-
-Дополнительная пауза компрессора SRCC удалена. Старое поле `minimum_ac_off` игнорируется и удаляется из нормализованных настроек. Включение COOL — запрос штатному контроллеру кондиционера, а не прямое включение компрессора. Встроенная защита оборудования может отсрочить фактический холод: подтверждение режима не доказывает работу компрессора. Инструкция предоставленного Haier, PDF страница 37, описывает собственную трёхминутную защиту повторного запуска и после восстановления питания.
-
-Удержание условий и минимальное время режима остаются для обычной сезонной смены. Они не задерживают критическое охлаждение, восстановление из подтверждённого IDLE и поддержание уже достигнутого режима. Краткая потеря данных UPS и повторное подтверждение прежнего режима не начинают новый период удержания. Тайм-ауты подтверждения команд сохранены; команды последовательны, запуск второй системы требует подтверждения остановки первой.
-
-Ограничения: без заданного `minimum_vent_rise` раннее переключение по росту температуры вентиляции по-прежнему не вычисляется; критическая защита действует независимо от него. Физическая производительность охлаждения, расход воздуха и температура во всех точках стойки программными тестами не подтверждаются. Порог сезонного включения вентиляции −1 °C не изменён.
-
-
-## Изменения 0.7.0: отрицательные пороги и температурное восстановление
-
-Этот раздел заменяет условия восстановления и нижней границы запуска из описания 0.6.0 выше. Разрешены отрицательные сезонные пороги, например AC → вентиляция при Tout≤−4 °C, вентиляция → AC при Tout≥−2 °C. Сохраняется порядок ac_hard_min < ac_to_vent < vent_to_ac. При ac_hard_min=−15 °C запуск разрешён при Tout≥−15 °C. Значения существующих настроек сохраняются; новое начальное значение hard-min — −15 °C.
-
-После критического перегрева охлаждение удерживается до выполнения обоих условий: фактическая температура воздуха, измеренная кондиционером, не выше настроенной в SRCC уставки AC; температура верхней части стойки не выше отдельного critical_recovery (27 °C по умолчанию). От датчика стойки не требуется достижения 22 °C. Используется именно current_temperature, а не записанная целевая температура кондиционера: внешнее изменение уставки не подменяет цель восстановления SRCC.
-
-Оба измерения должны быть достоверными, свежими и полученными после критического события. Таймер recovery_hold удалён; старое значение 120 секунд игнорируется. Неизменная температура на уровне цели допускает восстановление; отрицательный тренд больше не является обязательным. При отсутствии измеренной температуры AC критическое состояние сохраняется, даже если стойка уже ниже 27 °C. Это видно по ac_measured_temperature в атрибутах Decision reason и thermal_recovery в диагностике.
-
-Для обычного climate показание нормализуется из единиц HA. Для профиля Haier используется current_temperature из того же UART-снимка, что и остальные данные; повторная публикация не создаёт новое измерение. Значение, изменившееся без нового номера UART-статуса, отвергается. Отсутствие этого поля не мешает командам, но не подтверждает восстановление.
-
-Датчик времени восстановления больше не создаётся; старая запись этой сущности в HA может остаться недоступной и может быть удалена из реестра. Параметр recovery_max_gap сохранён для совместимости старой конфигурации, но не определяет новое восстановление без временного окна.
-
-Снятие критического состояния по-прежнему возвращает сезонную политику. Этот механизм не доказывает эффективность вентиляции и не заменяет отдельную оценку её работы по температуре стойки. При наружной −1 °C и заданном переходе вентиляция → AC −2 °C выбирается кондиционирование.
-
-
-## Исправление 0.7.1: температура стойки и запрет повторного цикла
-
-Условия 0.7.0 с использованием датчика Haier для восстановления заменены. Теперь учитывается только выбранный достоверный датчик температуры стойки (основной или предусмотренный резерв). Цель восстановления = min(critical_recovery, ac_target + rack_recovery_offset). Поправка в градусах, по умолчанию 0; она не означает измеренную разницу температур. Настройка ac_target + rack_recovery_offset должна быть ниже WARNING. Пример после калибровки: 22 + 2 = 24 °C. Текущее показание Haier остаётся диагностическим и не снимает перегрев. Измерение стойки для снятия CRITICAL должно быть свежим и новее критического события; 120-секундного таймера нет.
-
-Критический перегрев устанавливает отдельную блокировку автоматического возврата на вентиляцию. Кроме того, она устанавливается до CRITICAL, если при подтверждённо работающей автоматической вентиляции собрана полноценная пятиминутная выборка, положительны тренд и суммарный рост, а температура достигла WARNING. Доступный кондиционер выбирается без сезонной выдержки при WARNING и выше. Отсутствие настроенного minimum_vent_rise не выключает эту раннюю проверку.
-
-После охлаждения стойки температурная тревога снимается, но блокировка возврата остаётся: Decision reason = VENT_RETRY_LOCKED. Она сохраняется отдельно в хранилище HA и восстанавливается при reload/перезапуске. Никакое автоматическое похолодание само по себе не сбрасывает блокировку в этой версии. Повторную контролируемую попытку разрешает явное выключение и последующее включение Automatic control; при сохраняющемся CRITICAL блокировка устанавливается снова. Включение уже включённой автоматики её не сбрасывает. Выключение автоматики не выключает оборудование.
-
-Блокировка является предпочтением доступного AC, а не запретом использовать пригодную вентиляцию, когда AC недоступен, запрещён по наружной температуре или отсутствует сеть. Проверки питания, readback и ошибок остаются. Настройки −6/−4/−2 означают: AC разрешён при Tout≥−6 °C, штатный переход AC→вентиляция при Tout≤−4 °C, вентиляция→AC при Tout≥−2 °C. В промежутке сохраняется режим. Последний порог не запрещает полезную аварийную вентиляцию при невозможности кондиционирования.
-
-Диагностика и Decision reason показывают rack_recovery_target и vent_retry_locked (в диагностике thermal_recovery: rack_target). В журнале переход блокировки обозначается vent_retry_hold; центр сообщений получает именованное предупреждение vent_retry_locked. Это не утверждение о механической поломке вентилятора.
-
-Проверки: 93 автономных теста и 99 HA-тестов, включая сохранение/восстановление блокировки, явный сброс, ранний переход при WARNING, независимость от холодного датчика Haier, температурную поправку и резерв при недоступном AC. На оборудовании новая версия пока не проверена.
+An active critical latch can remain at a temperature below the entry threshold. A critical notification is not proof that the current reading is ≥28 °C. Actual recovery emits a resolution and an optional INFO. Voice queue/reminder behavior belongs to the receiving center; see [notifications](VOICE_NOTIFICATIONS.md).

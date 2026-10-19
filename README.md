@@ -1,110 +1,111 @@
+[**English**](README.md) · [**Русский**](README_RU.md)
+
 ![4VRS — Server Room Climate Controller](assets/banner_SRCC.png)
 
 # Server Room Climate Controller
 
-Home Assistant custom integration for server room cooling: coordinates ventilation and air conditioning, monitors temperature and UPS status, and provides backup sensor support, emergency modes, and verified equipment transitions. A 4VRS project.
+Home Assistant custom integration for server room cooling: coordinates ventilation and air conditioning, monitors temperature and UPS status, and provides backup sensor support, emergency modes, and verified equipment transitions. A 4VRS project. Integration domain: `fourvrs_server_room`.
 
-SRCC управляет охлаждением серверной по температуре стойки и наружного воздуха. Интеграция читает существующие сущности Home Assistant; транспортами Modbus и MQTT занимаются исходные интеграции оборудования. Domain: `fourvrs_server_room`.
+## Built for my installation
 
-## Для какой установки создан проект
+I develop SRCC primarily for my own server rack and equipment: a TRM-138 temperature controller with an exhaust fan, a Haier AC with an ESP32/Modbus controller, an APC UPS, and Bolid backup temperature sensors. The algorithms and field checks are based on this installation.
 
-Я разрабатываю SRCC прежде всего для своей серверной стойки и своего оборудования: ТРМ-138 с вытяжным вентилятором, кондиционера Haier с контроллером ESP32/Modbus, UPS APC и резервных температурных датчиков «Болид». Алгоритмы и полевые проверки ориентированы на эту установку.
+I publish the code and documentation as a practical project. Configurable entities allow adaptation, but this is not a ready-made universal controller for every server room. Different equipment requires checks of power wiring, command semantics, state feedback, and temperature thresholds.
 
-Публикую код и документацию как практический проект. Настраиваемые сущности позволяют адаптацию, но это не универсальное готовое решение для любой серверной. Для другого оборудования необходимо отдельно проверить питание, смысл состояний, команды, обратную связь и температурные пороги. Совместимость с произвольной конфигурацией не заявляется.
+## Version 0.8.0
 
-## Текущая версия — 0.8.0
+- Seasonal ventilation/AC selection with hysteresis and sequential, confirmed commands.
+- Rack overheating takes priority over seasonal cooling choices; UPS power and data quality remain part of every decision.
+- Downward-only adaptation: one permanent AC setpoint reduction per WARNING episode, saved into the existing setting after confirmation.
+- Temporary cooling assistance when ventilation has chilled the AC inlet sensor; the temporary target is not learned as the permanent setting.
+- INFO, WARNING, and ERROR events for the voice center, with input and execution diagnostics.
 
-- Межсезонное переключение вентиляции и кондиционера с гистерезисом и подтверждением состояний.
-- Приоритет охлаждения стойки при перегреве, резервные датчики и учёт питания UPS.
-- Постоянная адаптация уставки AC только вниз: один шаг за эпизод WARNING, сохранение в существующее поле после подтверждения команды.
-- Временная более низкая уставка при холодном датчике кондиционера после вентиляции. Она не сохраняется как постоянная.
-- INFO, WARNING и ERROR для голосового центра, диагностика входов и исполнения команд.
+**201 software tests passed** (95 standalone + 106 HA); hassfest reported **0 invalid integrations**. Sequential Haier commands and seasonal transitions in both directions have been observed on the installation. Version 0.8.0 is installed; permanent adaptation during a real WARNING still needs field confirmation. Software checks do not replace hardware acceptance.
 
-Пройдены **201 программный тест** (95 автономных + 106 HA), hassfest: **0 invalid**. На рабочей установке подтверждены последовательные команды Haier и переключения охлаждения в обоих направлениях. Версия 0.8.0 установлена; постоянная адаптация при реальном WARNING ещё ожидает полевого подтверждения. Программные проверки не заменяют испытания на оборудовании.
+## Install or update
 
-## Установка
+1. Download the integration ZIP from [Releases](https://github.com/dk-1983/SRCC/releases), or use the repository source.
+2. Copy `custom_components/fourvrs_server_room` into your HA configuration's `custom_components` directory. Restart Home Assistant.
+3. Add **Server Room Climate Controller** through Settings → Devices & services, and follow the [configuration guide](docs/INSTALLATION.md).
 
-1. Скопируйте `custom_components/fourvrs_server_room` в каталог `custom_components` конфигурации HA.
-2. Перезапустите Home Assistant и добавьте **Server Room Climate Controller** через интерфейс интеграций.
-3. Выберите входные сущности и параметры своей установки по [инструкции](docs/INSTALLATION.md).
+A new installation starts with automatic control OFF. Commands require the command profile and **Automatic control**. Its ON/OFF setting survives reload/restart; inputs are checked again before commands. An update does not require deleting the configuration entry.
 
-При первой установке автоматика выключена. Для отправки команд нужны исполнительный профиль и **Automatic control**. Выбранное ON/OFF сохраняется при reload и перезапуске; перед управлением входы проверяются заново. При обновлении файлов также требуется перезапуск HA, пересоздавать запись не нужно.
+## Operating rules
 
-## Основные правила
+These are initial defaults, not universal recommendations. Existing settings are not overwritten during an upgrade.
 
-Пороги настраиваются; значения ниже описывают начальные настройки, а не универсальные параметры для любой серверной. Сохранённые значения при обновлении не заменяются.
-
-| Условие | Поведение |
+| Condition | Behavior |
 |---|---|
-| Наружная температура ≥ +1 °C | Штатный переход с вентиляции на пригодный AC |
-| Наружная температура ≤ −1 °C | Штатный переход с AC на пригодную вентиляцию, если нет блокировки возврата |
-| Между сезонными порогами | Удержание текущего пригодного режима |
-| Ниже настроенного минимума AC | Запуск AC запрещён; начальный минимум −15 °C, на границе запуск разрешён |
-| Стойка ≥ WARNING (начально 26 °C), работает AC | Постоянный шаг уставки вниз; новый эпизод разрешён после охлаждения до WARNING − 1 °C |
-| Стойка ≥ CRITICAL (начально 28 °C) | Приоритет доступного кондиционирования независимо от сезонного выбора |
-| Восстановление после CRITICAL | По свежему датчику стойки: min(critical_recovery, уставка AC + поправка стойки); таймера 120 секунд нет |
-| Резервная вентиляция | Начально включение при 24 °C, выключение при 20 °C; наружный воздух ниже +10 °C и холоднее стойки |
+| Outdoor temperature ≥ +1 °C | Normal transition from ventilation to usable AC |
+| Outdoor temperature ≤ −1 °C | Normal transition from AC to usable ventilation unless retry is locked |
+| Between seasonal thresholds | Keep the current usable cooling method |
+| Below the configured AC outdoor minimum | AC start prohibited; initial minimum −15 °C, equality allowed |
+| Rack reaches WARNING, initially 26 °C, during confirmed AC operation | One permanent downward setpoint step; rearm below WARNING by 1 °C |
+| Rack reaches CRITICAL, initially 28 °C | Prioritize usable AC regardless of seasonal preference |
+| Critical recovery | Fresh rack temperature reaches min(critical_recovery, configured AC target + rack offset); no 120-second recovery timer |
+| Backup ventilation | Initially ON at 24 °C, OFF at 20 °C; outdoors below +10 °C and colder than the rack |
 
-Автоматического повышения постоянной уставки нет. Нижний предел и шаг берутся из сущности климатического устройства. При перегреве или подтверждённом росте температуры на вентиляции может блокироваться повторный автоматический возврат к ней. Эта блокировка сохраняется при reload; новая контролируемая попытка разрешается явным OFF→ON автоматики. Подробности — в [описании поведения](docs/BEHAVIOR.md).
+There is no automatic upward learning. Device setpoint limits and resolution are respected. A thermal incident or sustained warming during ventilation can lock automatic return to ventilation; that lock survives reload. An explicit Automatic control OFF→ON permits a new controlled attempt. See [behavior](docs/BEHAVIOR.md).
 
-В исходной установке ТРМ-138 регулирует вентилятор по 24/20 °C при C.dr=1. При C.dr=0 SRCC управляет выходом ВУ напрямую; состояние ВУ наблюдается в обоих режимах. Перед запуском AC подтверждаются C.dr=0 и ВУ=OFF, перед разрешением вентиляции — OFF кондиционера или допустимое доказательство его обесточивания. Используются COOL и OFF; обогрев не применяется. Дополнительной паузы защиты компрессора в SRCC нет — компрессором управляет штатный контроллер кондиционера.
+In my installation, TRM-138 controls the fan at 24/20 °C with C.dr=1. C.dr=0 allows SRCC to control its output directly. The output is monitored in both modes. AC starts only after automatic ventilation and fan output are confirmed OFF. Ventilation requires confirmed AC OFF or valid evidence that the AC is unpowered. SRCC uses COOL and OFF, not heating. The appliance controls its own compressor protection; SRCC adds no external compressor restart delay.
 
-## Данные, питание и ограничения
+## Related projects
 
-Основной и наружный датчики обязательны, резервных может быть 0, 1 или 2. При отказе основного используются пригодные резервы: среднее двух согласованных по времени либо один доступный с предупреждением. Датчики разных мест не считаются взаимозаменяемыми без проверки их размещения.
-
-В исходной схеме вентилятор и ТРМ питаются от UPS, а кондиционер и его контроллер связи — от общей с входом UPS внешней линии. Только подтверждённая схема и согласованные свежие сигналы позволяют сделать вывод об обесточивании AC. Одна недоступность сущности этого не доказывает.
-
-Для Haier ESP поддерживается единый UART-снимок, контроль heartbeat и подтверждение последовательных команд через MQTT result. Повторная публикация старого измерения не подтверждает новую команду. [Настройка профиля](docs/HAIER_TELEMETRY.md).
-
-Голосовые уровни и повторы по умолчанию выключены. Для оповещений нужен совместимый приёмник [контракта v1](docs/VOICE_PROTOCOL_V1.md). Обслуживание оповещений не меняет охлаждение.
-
-Выключение автоматики прекращает новые команды, но сохраняет состояние оборудования. SRCC не управляет UPS/EPO или пожаротушением и не заменяет независимую аппаратную защиту. Аппаратное взаимное исключение вентиляции и кондиционера интеграцией не обеспечивается.
-
-## Карта смежных проектов
-
-SRCC работает с сущностями Home Assistant. Чтение оборудования, транспорт и преобразование протоколов выполняют отдельные проекты. На схеме показаны возможные пути подключения: MQTT и Modbus — альтернативы, их не требуется включать одновременно.
+SRCC works through HA entities. Device drivers and network/serial transports belong to the related projects. MQTT and Modbus are alternative routes; both are not required at once.
 
 ```mermaid
 flowchart TB
-    H["Кондиционер Haier"] <--> HB["Haier-ESP32-Modbus"]
-    S["Кондиционер Samsung — альтернатива"] <--> SB["Samsung-ESP32-MQTT-Modbus"]
-    HB <-->|MQTT| B["MQTT-брокер"]
+    H["Haier AC"] <--> HB["Haier-ESP32-Modbus"]
+    S["Samsung AC — alternative"] <--> SB["Samsung-ESP32-MQTT-Modbus"]
+    HB <-->|MQTT| B["MQTT broker"]
     SB <-->|MQTT| B
-    B <--> MQ["MQTT-интеграция Home Assistant"]
-    HB <-.->|"Modbus TCP напрямую"| MD["Modbus Devices"]
-    SB <-.->|"Modbus TCP напрямую"| MD
-    HB <-.->|"RS-485 / Modbus RTU"| GW["Moxa / 4VRS Gateway — при необходимости"]
+    B <--> MQ["Home Assistant MQTT integration"]
+    HB <-.->|"Direct Modbus TCP"| MD["Modbus Devices"]
+    SB <-.->|"Direct Modbus TCP"| MD
+    HB <-.->|"RS-485 / Modbus RTU"| GW["Moxa / 4VRS Gateway — optional"]
     SB <-.->|"RS-485 / Modbus RTU"| GW
-    TRM["ТРМ-138: температуры, C.dr, ВУ"] <-->|"Modbus RTU"| GW
-    TRM --> FAN["Вытяжной вентилятор"]
-    BL["Резервные датчики Болид через преобразователь протокола"] --> GW
+    TRM["TRM-138: temperatures, C.dr, output"] <-->|"Modbus RTU"| GW
+    TRM --> FAN["Exhaust fan"]
+    BL["Bolid backup sensors via protocol converter"] --> GW
     GW <-->|"Modbus TCP"| MD
-    UPS["APC UPS — состояние питания и диагностика"] -->|"Modbus TCP"| MD
-    MD <--> ENT["Сущности Home Assistant"]
+    UPS["APC UPS: power status and diagnostics"] -->|"Modbus TCP"| MD
+    MD <--> ENT["Home Assistant entities"]
     MQ <--> ENT
-    ENT -->|"Температуры, состояния, подтверждения"| SRCC["SRCC: выбор охлаждения и адаптация уставки"]
-    SRCC -->|"Команды только AC и вентиляции"| ENT
-    SRCC -->|"INFO / WARNING / ERROR"| VOICE["Голосовой центр — совместимый интерфейс v1"]
+    ENT -->|"Temperatures, states, confirmations"| SRCC["SRCC: cooling selection and setpoint adaptation"]
+    SRCC -->|"AC and ventilation commands only"| ENT
+    SRCC -->|"INFO / WARNING / ERROR"| VOICE["Home-Control voice center: interface v1"]
 ```
 
-Стрелки обмена показывают команды и обратную связь там, где оборудование допускает управление. UPS и резервные датчики используются как источники данных; SRCC не отправляет команды EPO или пожаротушению. Moxa нужен для выбранного последовательного пути, а при прямом Modbus TCP или MQTT отдельный шлюз не требуется.
+Exchange arrows include commands where supported. UPS and backup sensors provide data only; SRCC does not command EPO or fire suppression. Moxa provides the selected serial route; direct TCP or MQTT does not require this gateway.
 
-| Проект | Роль в системе |
+| Project | Role |
 |---|---|
-| [Haier-ESP32-Modbus](https://github.com/dk-1983/Haier-ESP32-Modbus) | ESP32-мост к UART кондиционера Haier: MQTT и Modbus RTU/TCP. В текущей установке SRCC применяется MQTT с телеметрией и подтверждением команд. |
-| [Samsung-ESP32-MQTT-Modbus](https://github.com/dk-1983/Samsung-ESP32-MQTT-Modbus) | Альтернативный ESP32-мост для кондиционера Samsung: UART, MQTT и Modbus RTU/TCP. Предусмотрен как вариант вместо Haier при адаптации установки. |
-| [Modbus Devices](https://github.com/dk-1983/Modbus_Devices) | Интеграция HA для чтения и управления Modbus-оборудованием; предоставляет сущности температур, выходов контроллера, состояния UPS и поддерживаемых климатических устройств. |
-| [Moxa / 4VRS Gateway](https://github.com/dk-1983/moxa-4vrs-gateway) | Шлюз на Moxa UC-7420 между сетью и последовательными портами; связывает Modbus TCP с Modbus RTU для выбранного пути подключения. |
+| [Haier-ESP32-Modbus](https://github.com/dk-1983/Haier-ESP32-Modbus) | ESP32 UART bridge with MQTT and Modbus RTU/TCP. My SRCC installation uses MQTT telemetry and command confirmation. |
+| [Samsung-ESP32-MQTT-Modbus](https://github.com/dk-1983/Samsung-ESP32-MQTT-Modbus) | Alternative UART/MQTT/Modbus bridge. It works on my Samsung AC; joint operation with SRCC remains a future test. |
+| [Modbus Devices](https://github.com/dk-1983/Modbus_Devices) | HA integration providing entities for temperatures, controller outputs, UPS status, and supported climate devices. |
+| [Moxa / 4VRS Gateway](https://github.com/dk-1983/moxa-4vrs-gateway) | Network-to-serial gateway on Moxa UC-7420, including Modbus TCP to RTU. |
+| [Home-Control](https://github.com/dk-1983/Home-Control) | My apartment automation project, including the voice center that receives SRCC process events through the v1 interface. |
 
-Я развиваю эти проекты под оборудование, которое есть у меня и которое могу проверить. Других марок кондиционеров в наличии нет, поэтому их совместимость не заявляю. Расширение списка возможно при наличии оборудования для испытаний и открытых либо документированных протоколов.
+I develop these projects for equipment I have and can test. I do not have other AC brands available and do not claim their compatibility. Additional devices need hardware for testing and open or documented protocols.
 
-Samsung показан как альтернатива, а не как второй одновременно управляемый кондиционер. Его совместная работа с SRCC требует отдельной проверки сущности climate, обратной связи и подтверждения команд. Специальный профиль телеметрии Haier нельзя автоматически считать совместимым с Samsung.
+Samsung is an alternative, not a second simultaneously controlled AC. Its project currently lacks a software error-free status sensor. The separate fault input is optional in SRCC, but availability does not prove absence of appliance errors. The Haier-specific telemetry profile must not be assumed compatible with Samsung.
 
-## Документация
+## Data and boundaries
 
-- [Установка и настройки](docs/INSTALLATION.md), [реализованное поведение](docs/BEHAVIOR.md).
-- [История изменений](CHANGELOG.md), [архитектура](docs/ARCHITECTURE.md).
-- [Оповещения](docs/VOICE_NOTIFICATIONS.md), [контракт голосового центра](docs/VOICE_PROTOCOL_V1.md).
-- [Проверки и полевые результаты](docs/VALIDATION_PLAN.md), [каталог тестов](docs/TEST_CATALOG.md).
-- [Разработка](docs/DEVELOPMENT.md), [участие в проекте](CONTRIBUTING.md).
+A primary rack and an outdoor temperature sensor are required. Zero, one, or two backup sensors can be configured. Valid, time-aligned backups are averaged; one remaining valid backup can be used with a warning. Sensor placement must be checked before treating readings as substitutes.
+
+The fan and TRM in my installation run from UPS. The AC and its communication controller run from the same external supply as the UPS input. Only confirmed wiring and consistent fresh power states allow an unpowered-AC inference; `unavailable` alone does not prove OFF.
+
+The Haier profile uses one UART snapshot, heartbeat checks, and sequential MQTT-result command confirmation. Republishing an old measurement is not confirmation. See [Haier telemetry](docs/HAIER_TELEMETRY.md).
+
+Voice levels and reminders default OFF. They require a receiver implementing the [v1 contract](docs/VOICE_PROTOCOL_V1.md). Notification maintenance does not change cooling. Documentation is bilingual; generated voice messages in this release remain Russian.
+
+Turning automation OFF stops new commands but leaves equipment in its current state. SRCC does not control UPS/EPO or fire suppression, replace independent hardware protection, or provide a hardware interlock between AC and ventilation.
+
+## Documentation
+
+- [Installation](docs/INSTALLATION.md) and [operating behavior](docs/BEHAVIOR.md).
+- [Changelog](CHANGELOG.md) and [architecture](docs/ARCHITECTURE.md).
+- [Voice notifications](docs/VOICE_NOTIFICATIONS.md) and [receiver contract](docs/VOICE_PROTOCOL_V1.md).
+- [Validation and field results](docs/VALIDATION_PLAN.md) and [test catalog](docs/TEST_CATALOG.md).
+- [Development](docs/DEVELOPMENT.md) and [contributing](CONTRIBUTING.md).

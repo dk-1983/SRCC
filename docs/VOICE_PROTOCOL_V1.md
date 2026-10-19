@@ -1,53 +1,47 @@
-# Публичный контракт голосовых источников v1
+[**English**](VOICE_PROTOCOL_V1.md) · [**Русский**](VOICE_PROTOCOL_V1_RU.md)
 
-Статус: имена и схема согласованы между задачами SRCC и Home Control 2026-09-29. В SRCC подготовлен клиент. **Принимающая сторона отсутствует в Home Control 0.11.0 (d11ca47); совместимость с рабочим центром ещё не реализована и не проверена.** Существующий `home_control.announce` принимает только внутренние процессы Home Control и здесь не используется.
+# Public voice-source contract v1
 
-Ниже — спецификация целевого интерфейса для отдельной реализации в Home Control. SRCC не импортирует классы центра, не пишет в его hass.data и не вызывает колонки. Обязательной зависимости интеграций нет.
+This is the external interface used by SRCC with [Home-Control](https://github.com/dk-1983/Home-Control). SRCC does not import center internals, modify its hass.data, call speakers, or require the center for cooling. An installed receiver must implement this contract; the repository link alone is not a compatibility check. The original Home-Control 0.11.0 snapshot did not implement it. Later field observations of speech do not establish every receiver edge case below.
 
-## Идентичность
+## Identity and envelope
 
-Источник — тройка `source = {domain, config_entry_id, process_id}`. Все строки непустые, длиной до 128 символов; domain — домен установленной интеграции, config_entry_id — её существующая загруженная запись, process_id — постоянный ключ процесса, а не название или entity_id оборудования. Приёмник проверяет принадлежность записи domain и её загрузку; запросы неизвестных/удалённых источников не обслуживает. Внутренние и внешние источники должны иметь раздельные пространства ключей.
+A source is exactly `{domain, config_entry_id, process_id}`. Each value is a nonempty string up to 128 characters. The receiver validates that the loaded config entry belongs to the domain. Internal/external namespaces must not collide. Services are a trusted internal HA interface, not device authentication.
 
-SRCC регистрирует ровно один процесс:
+SRCC registers one source:
 
 ```json
 {"domain": "fourvrs_server_room", "config_entry_id": "ENTRY_ID", "process_id": "climate"}
 ```
 
-Замена оборудования, переименование записи и выбор помещения не меняют source. Удаление и создание новой записи создаёт другой source. `name` — изменяемое название процесса, `area_id` — помещение самого процесса. Пустое поле voice_area в SRCC использует помещение устройства SRCC в реестре HA, не помещение аппаратного реле/кондиционера. Неизвестное/удалённое помещение не должно блокировать ERROR: для INFO центр применяет свои правила отсутствия маршрута/альтернатив, WARNING/ERROR направляет на все настроенные доступные колонки.
+Renaming, replacing equipment, or changing area does not change this identity. Recreating the configuration entry does. `name` and `area_id` are metadata, not identity. An omitted SRCC voice_area uses the SRCC device's HA area. Unknown areas must not suppress ERROR: the center applies its INFO fallback policy and routes WARNING/ERROR to its configured available speakers.
 
-Сервисы — доверенный внутренний интерфейс HA, не механизм авторизации аппаратных устройств. Только один действующий producer обслуживает source; чужую запись Home Control подставлять запрещено.
+Every request contains:
 
-## Общий конверт
-
-Каждый запрос содержит обязательные поля:
-
-| Поле | Тип и правило |
+| Field | Requirement |
 |---|---|
-| protocol_version | Целое строго 1, boolean не допустим |
-| source | Объект с тремя строками выше, без дополнительных полей |
-| producer_session | Непустая строка до 128 символов; SRCC создаёт UUID hex при каждой загрузке runtime |
-| revision | Положительное целое (не boolean), монотонно возрастает для всех операций одной producer_session |
+| protocol_version | Integer exactly 1, never boolean |
+| source | Exactly the three strings above |
+| producer_session | Nonempty string up to 128 characters; new UUID hex per SRCC runtime |
+| revision | Positive integer, never boolean; increasing across operations within the session |
 
-В одном source новый producer_session заменяет предыдущий; старая сессия помечается вытесненной. Последующие операции вытесненной сессии, включая register и unregister, отвергаются. Хранилище вытесненных сессий должно сохраняться в течение жизни принимающей стороны; переполнение не должно молча разрешать старую сессию.
+A new producer_session replaces the prior one for a source. Retired sessions cannot later register, publish, or unregister. The receiver retains retirement evidence for its lifetime; overflow cannot silently authorize an old session.
 
-`center_session` — непрозрачная непустая строка до 128 символов, новая при каждой загрузке принимающей стороны. Она обязательна для publish/unregister, берётся только из принятой регистрации. Перезапуск центра сбрасывает регистрации и очередь. Запрос с прежней center_session отвергается (`registration_required`); producer повторяет регистрацию актуального snapshot.
+The receiver generates a new nonempty center_session (up to 128 characters) on startup. It is required on publish/unregister and comes only from an accepted registration. Old center sessions are rejected with registration_required. Receiver restart clears registrations and queues; producers register current snapshots again.
 
 ## home_control.register_voice_source
 
-Дополнительно к общему конверту все поля обязательны:
+In addition to the envelope, require:
 
-| Поле | Тип и правило |
+| Field | Requirement |
 |---|---|
-| name | Непустая строка до 200 символов, отображаемое название |
-| area_id | Строка ID помещения HA до 128 символов либо null |
-| preferences | Объект с четырьмя строгими boolean: voice_info, voice_warning, voice_error, voice_repeat |
-| maintenance | Строгий boolean; true отменяет ожидающую речь и напоминания источника |
-| active_issues | Полный список актуальных проблем, максимум 64; каждый объект {key, level, message}; key уникален в списке, level только WARNING/ERROR |
+| name | Nonempty string, up to 200 characters |
+| area_id | HA area ID string up to 128 characters, or null |
+| preferences | Exactly voice_info, voice_warning, voice_error, voice_repeat; strict booleans |
+| maintenance | Strict boolean; true cancels queued speech/reminders |
+| active_issues | Complete current list, maximum 64; each `{key, level, message}` |
 
-key — непустая стабильная строка до 80 символов. message — непустая строка до 500 символов. При maintenance=true список active_issues должен быть пустым. Название передаётся отдельно от текста; центр при необходимости добавляет его один раз, не меняя source/key.
-
-Пример:
+Issue keys are unique, stable, nonempty strings up to 80 characters. Active levels are WARNING or ERROR. Messages are nonempty strings up to 500 characters. Maintenance requires an empty active_issues list. The center may prepend the source name once without changing identity.
 
 ```json
 {
@@ -59,61 +53,55 @@ key — непустая стабильная строка до 80 символ�
   "area_id": "server_room",
   "preferences": {"voice_info": false, "voice_warning": true, "voice_error": true, "voice_repeat": false},
   "maintenance": false,
-  "active_issues": [{"key": "input_quality", "level": "WARNING", "message": "Часть данных контроллера охлаждения недостоверна или используется резервный датчик."}]
+  "active_issues": [{"key": "temperature_high", "level": "WARNING", "message": "Rack temperature has reached the warning threshold."}]
 }
 ```
 
-Успешный ответ HA service response обязателен:
+Required successful service response:
 
 ```json
 {"accepted": true, "protocol_version": 1, "center_session": "CENTER_SESSION", "lease_seconds": 180}
 ```
 
-Обновление регистрации атомарно заменяет метаданные и snapshot. Отсутствующий ключ снимает прежнюю проблему и отменяет ожидающее сообщение/напоминание для неё. Уменьшение разрешений уровня либо maintenance=true также отменяет соответствующие ожидающие сообщения. Неизменный snapshot не считается событием и не сбрасывает отсчёт напоминаний. Новая проблема/изменение уровня обрабатывается центром с его правилами очереди; разрешённость речи всегда повторно проверяется непосредственно перед отправкой.
+Registration atomically replaces metadata and active issues. Missing keys resolve previous issues and cancel their pending speech/reminders. Reduced level permissions or maintenance also cancel affected queued work. An unchanged snapshot is not a new event and must not reset reminder timing. Speech eligibility is rechecked immediately before delivery.
 
 ## home_control.publish_voice_event
 
-Общий конверт плюс обязательные center_session и event. Все пять полей event обязательны:
+Require the envelope, center_session, and all five event fields:
 
 ```json
-{"key": "temperature_high", "level": "ERROR", "message": "Контроллер сообщает о критической температуре серверной.", "active": true, "resolved": false}
+{"key": "temperature_high", "level": "ERROR", "message": "The critical rack temperature alarm is active.", "active": true, "resolved": false}
 ```
 
-- level — INFO, WARNING или ERROR, регистр фиксирован.
-- active/resolved — строгие boolean; одновременно true недопустимы.
-- active=true разрешён для WARNING/ERROR, сохраняет/обновляет одну проблему source+key. INFO не становится активной проблемой.
-- resolved=true требует active=false, message может быть пустой строкой. Удаляет проблему и отменяет очередь/напоминания по source+key; само снятие не озвучивается. Повторное снятие отсутствующего ключа безвредно.
-- active=false/resolved=false — одноразовое сообщение с непустым message. Оно не создаёт проблему и не снимает существующую.
-- key/message имеют те же ограничения 80/500 символов.
+- level is INFO, WARNING, or ERROR, case-sensitive.
+- active/resolved are strict booleans and cannot both be true.
+- active=true is allowed only for WARNING/ERROR and updates one source+key issue.
+- resolved=true requires active=false. The message may be empty. It removes the issue and cancels its queue/reminders; resolution itself is silent. Resolving an absent key is harmless.
+- active=false/resolved=false is a one-shot event with a nonempty message. It neither creates nor clears an issue.
+- key/message limits remain 80/500 characters.
 
-При восстановлении SRCC сначала отправляет explicit resolved, затем, если voice_info включён, одноразовый INFO **с тем же key**. Возобновившаяся проблема заменяет ожидающее восстановление по этому ключу. Повторное сообщение с тем же ключом не создаёт независимую очередь.
+On recovery, SRCC sends explicit resolved first and, if INFO is enabled, one informational event using the same key. A recurring problem invalidates queued recovery INFO for that key. Repeated keys do not create independent queues.
 
-Ответ: `{"accepted": true}` либо `{"accepted": false, "reason": "registration_required"}`. Дополнительные поля ответа допускаются. accepted означает принятие события, а не факт произнесения. Ошибки схемы могут возвращаться стандартной ошибкой HA service; исключения не должны менять ранее принятое состояние.
+Return accepted=true or accepted=false with a reason, such as registration_required. Additional response fields are permitted. Accepted means the event was accepted, not that speech occurred. Schema errors may be HA service errors but must not corrupt accepted state.
 
 ## home_control.unregister_voice_source
 
-Общий конверт плюс обязательная center_session. Снимает регистрацию только соответствующей producer_session и отменяет ожидающее/напоминания данного source. Ответ — accepted/reason как для publish. Запоздалый unregister вытесненной сессии не может удалить новую регистрацию. Завершённая сессия становится недействующей. При невозможности доставить unregister действует lease expiry.
+Require the envelope and center_session. Remove only the matching producer session and cancel its queued speech/reminders. A delayed unregister from a replaced session cannot remove a newer source. Retire the ended producer session. If unregister cannot be delivered, lease expiry provides cleanup.
 
-## Lifecycle, lease и неопределённый результат
+## Discovery, lease, and retry
 
-1. Producer подписывается на `home_control_voice_ready` до отправки `home_control_voice_discover` с `{protocol_version: 1}`. Готовый центр отвечает ready `{protocol_version: 1, center_session: "..."}`. Также ready отправляется при готовности всех трёх сервисов. Это не признак включённости звука/автоматики центра.
-2. Producer дополнительно проверяет наличие трёх сервисов при старте. Если центр уже загружен, он регистрируется без ожидания события. Если центр ещё отсутствует, продолжает оборудование и обнаруживает его по ready либо ближайшему циклу продления.
-3. SRCC вызывает сервисы последовательно в отдельной задаче, с пределом ожидания 3 s. Регистрация и heartbeat каждые 60 s; lease 180 s. Это транспортные константы v1, не пользовательский таймер повторения речи. Аппаратных опросов этот обмен не создаёт.
-4. Только принятая регистрация разрешает publish. Отключённый центр может принимать регистрации/проблемы, но не отправляет речь. SRCC не включает его автоматически.
-5. После исключения, rejection или тайм-аута SRCC не повторяет INFO, очищает переходные уведомления и не делает новую попытку раньше 60 s. Новый ready с другой center_session может ускорить восстановление. Следующая попытка — register с **новым revision и актуальным snapshot**, а не воспроизведение старых публикаций.
-6. Общий контракт допускает идемпотентный retry того же запроса: та же session+revision и идентичное тело возвращают прежний результат без повторной речи, смены snapshot, продления lease или сброса reminder timer. Та же revision с другим телом отвергается. Устаревшая revision не откатывает состояние; приёмник может вернуть accepted=true/no-op либо accepted=false/stale_revision. SRCC такие операции самостоятельно не повторяет.
-7. Lease истекает без нового принятого register: центр снимает активную регистрацию, отменяет ожидающее и напоминания. Истечение **не делает producer_session retired**: тот же живой runtime восстанавливается register с большим revision и актуальным snapshot. Приёмник сохраняет последний revision и тело для защиты от запоздалых операций. Просроченный дубль register не оживляет lease; publish до новой принятой регистрации получает registration_required. Retired относится только к явно завершённой unregister или вытесненной сессии. Publish lease не продлевает. Уже отправленная колонке речь может закончиться; команду остановки процесс не отправляет.
-8. При новом producer_session или center_session активные проблемы восстанавливаются только из текущего snapshot. Исторические INFO, старые очереди и незавершённые попытки речи не восстанавливаются.
-9. При обслуживании SRCC немедленно прекращает новые локальные INFO, очищает ещё не переданные сообщения и регистрирует maintenance=true/пустой snapshot. Уже выполняемый сервис нельзя отозвать; следующий принятый snapshot отменяет очередь центра. При недоступности центра отмена ограничена его lease. Выход из обслуживания передаёт актуальные проблемы без воспроизведения событий периода обслуживания.
+1. Subscribe to home_control_voice_ready before firing home_control_voice_discover with protocol_version=1. Ready includes protocol_version=1 and center_session. Readiness of services is not proof that speech is enabled.
+2. Check all three services at startup as well, so a center already running need not emit another ready event. Center absence never stops equipment control.
+3. SRCC calls services sequentially in a separate task, with a 3-second timeout. Registration renewal is every 60 s; lease is 180 s. These are transport constants, not reminder intervals, and do not poll equipment.
+4. Only accepted registration permits publish. The center may accept state while speech is disabled; SRCC never enables it automatically.
+5. After exceptions, rejection, or timeout, clear queued INFO and wait at least 60 s before retry. A new center-session ready may accelerate registration. Retry uses a new revision and current snapshot, not old events.
+6. The contract permits an identical session/revision/body retry as a no-op: no repeated speech, state change, lease extension, or reminder reset. A different body at the same revision is rejected. Older revisions cannot roll state back. SRCC does not independently replay such operations.
+7. Lease expiry removes registration/queues but does not retire the producer session. That live producer may re-register with a newer revision. Expired duplicate registration does not revive the lease. Publish does not renew it. Already delivered speech may finish; SRCC does not send a stop-speaker command.
+8. New producer or center sessions restore active issues only from the current snapshot. Historical INFO and old speech attempts are not restored.
+9. Maintenance suppresses new local INFO, clears pending local notices, and registers an empty maintenance snapshot. An in-flight service cannot be withdrawn; the next accepted snapshot cancels center queues. With the center unavailable, cancellation is bounded by lease expiry. Leaving maintenance reports current conditions, not events accumulated during maintenance.
 
-Очереди по колонкам, дедупликация, TTL, ночные интервалы, громкость, присутствие, альтернативные помещения, приоритеты и интервал напоминаний принадлежат исключительно Home Control. Повторяет центр только активные ERROR при voice_error=true и voice_repeat=true. SRCC не содержит таймера повторного озвучивания.
+Speaker queues, deduplication, TTL, quiet hours, volume, presence, alternate areas, priorities, and reminder intervals belong to Home-Control. Reminders apply only to active ERROR when both voice_error and voice_repeat are true. SRCC has no periodic speech-reminder timer.
 
-## Что требуется реализовать в Home Control
+## Receiver acceptance
 
-- Отдельный реестр внешних источников с указанными validation/session/revision/lease правилами, не обращение к текущему announce от имени чужой записи.
-- Три response-capable сервиса и два публичных события выше; register работает также при выключенном центре.
-- Атомарное согласование snapshot и отмена очередей при resolved/unregister/maintenance/истечении lease/отключении уровня; heartbeat не считается новым оповещением.
-- Передача внешних событий в существующий центр и повторная проверка источника, разрешений, активности и маршрута перед речью.
-- Тесты самого приёмника: строгая схема, два producer session, старый center session, дубли/коллизии revision, expiry, отключённый центр и ночная тишина.
-
-Тестовый приёмник в `tests/ha/test_voice.py` нужен для проверки клиента SRCC. Он не заменяет указанную реализацию, её валидацию и совместные испытания.
+Verify strict schemas, two producer sessions, stale center sessions, duplicate/revision collisions, lease expiry, disabled levels/center, routing, quiet hours, and queue cancellation at resolution. Speaker delivery must recheck source/permission/activity/routing. The mock receiver in tests/ha/test_voice.py verifies the SRCC client boundary; it is not the production center implementation.

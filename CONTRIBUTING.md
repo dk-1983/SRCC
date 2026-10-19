@@ -1,21 +1,15 @@
-# Участие в разработке
+[**English**](CONTRIBUTING.md) · [**Русский**](CONTRIBUTING_RU.md)
 
-Проект предоставляет ядро и HA-слой наблюдения; исполнительные команды ещё не подключены. Для HA-слоя выполняйте контейнерные проверки из docs/DEVELOPMENT.md. Изменения должны сохранять границу: только Home Assistant entities и services, без драйверов оборудования и транспортов внутри SRCC.
+# Contributing
 
-## Изменения
+SRCC includes a decision core, HA observation, and sequential equipment control. Keep hardware drivers and transports outside SRCC: use HA entities and services.
 
-- Описывайте проблему, ожидаемое поведение и способ проверки.
-- Отделяйте утверждённые требования от предложений и предварительных параметров.
-- Изменение guards, переходов, питания или восстановления сопровождайте сценарием проверки и обновлением архитектуры.
-- Не вводите окончательные эксплуатационные пороги без согласованной конфигурационной модели.
-- Разделяйте логические изменения на осмысленные Git-коммиты.
+- Describe the problem, expected behavior, and evidence used to validate a change.
+- Distinguish implemented requirements from proposals and provisional settings.
+- Changes to guards, power handling, transitions, or recovery need meaningful regression scenarios and updated documentation.
+- Keep related changes in focused commits. Do not introduce equipment-specific constants without a configuration model.
+- Maintain English documentation as the default and Russian pages as the second language, with reciprocal language links.
 
-## Документация
+README and docs contain architecture, limitations, requirements, instructions, and reproducible validation results. Keep personal notes, conversations, raw diagnostics, screenshots, and draft work in ignored `.local/`. Never commit credentials, internal addresses, or real installation exports. Use fictional entity IDs in examples.
 
-README и docs содержат документацию для пользователей и участников проекта: архитектуру, ограничения, согласованные решения, проверяемые требования и инструкции. Личные заметки, диалоги, исходные выгрузки, временные планы работы и черновики не публикуются. Для локальных материалов предусмотрена исключённая из Git директория `.local/`.
-
-Не включайте в коммиты токены, адреса внутренней сети, реальные диагностические выгрузки или настройки чужой установки. Примеры используйте с условными идентификаторами.
-
-## Проверка
-
-Для кода ядра запускайте `python -m unittest discover -s tests -v`. Для документации проверяются ссылки и отсутствие обещаний ещё не реализованных возможностей. Целевые сценарии перечислены в [плана проверки](docs/VALIDATION_PLAN.md). Не указывайте тесты пройденными, если они не запускались.
+Run the checks described in [Development](docs/DEVELOPMENT.md). For documentation-only changes, check links, language navigation, and technical accuracy. Record only checks actually performed; distinguish software simulation from field evidence.

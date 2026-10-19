@@ -1,16 +1,16 @@
 ---
-name: Предложение по архитектуре
-about: Обсуждение требований и поведения интеграции
+name: Architecture proposal
+about: Requirements and integration behavior
 ---
 
-## Задача
+## Scenario
 
-Какой сценарий необходимо поддержать?
+What behavior should be supported?
 
-## Предлагаемое поведение
+## Proposed behavior
 
-Какие входные данные и подтверждения доступны? Что должно происходить при их потере?
+Which inputs and confirmations are available? What should happen when they are lost?
 
-## Проверка
+## Validation
 
-По каким наблюдаемым результатам можно проверить решение?
+Which observable results would verify the change?

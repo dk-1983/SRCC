@@ -1,109 +1,68 @@
-# Haier ESP v1.3.0: подключение телеметрии к SRCC 0.3.1
+[**English**](HAIER_TELEMETRY.md) · [**Русский**](HAIER_TELEMETRY_RU.md)
 
-Профиль необязателен. Он предназначен для прошивки [Haier-ESP32-Modbus v1.3.0](https://github.com/dk-1983/Haier-ESP32-Modbus/releases/tag/v1.3.0) и схемы телеметрии 1. Формат источника описан в [спецификации прошивки](https://github.com/dk-1983/Haier-ESP32-Modbus/blob/v1.3.0/docs/MQTT_TELEMETRY_RU.md). Другие интеграции продолжают работать через прежний профиль climate.
+# Haier ESP telemetry and command confirmation
 
-SRCC 0.3.1 прошёл программные проверки. Совместная проверка этой версии SRCC с рабочей ESP и брокером ещё не выполнена. Успешная установка прошивки не заменяет совместную проверку.
+The optional schema-1 profile consumes the telemetry contract introduced by Haier ESP v1.3.0. It uses MQTT entities and command results without replacing normal climate service calls. Firmware documentation: [Haier-ESP32-Modbus](https://github.com/dk-1983/Haier-ESP32-Modbus). Generic climate bindings remain available when this profile is not selected.
 
-## Настройка без удаления интеграции
+## Configure
 
-1. Перед изменением профиля выключите **Automatic control**. Оборудование останется в текущем состоянии.
-2. Обновите каталог `custom_components/fourvrs_server_room` и перезапустите HA. Удалять запись SRCC не требуется.
-3. Убедитесь, что MQTT Discovery создал у устройства Haier диагностический сенсор **Telemetry**. Он должен быть включён и получать атрибуты `schema`, `boot_id`, `status_frames`, `sample_uptime_ms`, `published_uptime_ms`, `fault_valid` и остальные поля схемы 1.
-4. В настройках существующей записи SRCC оставьте прежний **Air conditioner** и назначьте **Haier v1.3+ telemetry (optional)**. Выбирайте сенсор Telemetry того же MQTT-устройства. SRCC проверяет registry device_id, платформу MQTT и окончание unique_id `_telemetry`; имена entity_id не зашиты.
-5. Заполните **Haier MQTT result topic (PREFIX/result)**: фактический MQTT-префикс ESP с суффиксом `/result`. Например, для префикса `server-room-ac` это `server-room-ac/result`. Это пример, не адрес вашей установки. Префикс смотрят в MQTT-настройках ESP. Подстановки `+` и `#` не допускаются. Принадлежность введённого топика устройству автоматически не проверяется.
-6. **Haier telemetry command confirmation timeout** оставьте **35 секунд** для начала. Это отдельная настройка; прежние `ac_readback_timeout`, `ac_max_age` и выдержка компрессора не меняются.
-7. Сохраните настройки. Дождитесь живой телеметрии, проверьте диагностику и затем включите **Automatic control**.
+1. Turn Automatic control OFF while first checking a new binding.
+2. Select the Haier climate entity and its Telemetry sensor.
+3. Both must be registered MQTT entities belonging to the same HA device. The telemetry unique_id must end in `_telemetry`.
+4. Set the firmware's MQTT result topic ending in `/result`; wildcards are not allowed.
+5. Initially use **Haier telemetry command confirmation timeout = 35 s**.
+6. Save, wait for live telemetry, inspect quality, then enable Automatic control.
 
-Отдельный **Air conditioner fault** для этого профиля назначать не требуется: ошибка берётся из общего снимка. Даже если отдельный датчик назначен, телеметрия имеет приоритет. Если поле Haier telemetry очищено, вновь применяется прежний профиль climate и его отдельный необязательный fault.
+A separate fault sensor is unnecessary for this profile; fault comes from the same UART snapshot. Clearing the telemetry binding returns to generic climate/fault processing. Saving options preserves the Automatic control setting, so leaving it ON can resume commands after reload.
 
-Изменение options сохраняет выбранное состояние управления: если Automatic control оставить ON, после перезагрузки записи управление возобновится само после проверок. Поэтому для первоначальной проверки профиля выше предусмотрено явное OFF.
+## Snapshot and freshness
 
-## Как проверяется состояние
+Mode, target, measured temperature, and fault are read from one snapshot. Telemetry temperatures are °C; outgoing climate service temperatures are converted to HA units when required. Ordinary climate updates do not replace selected telemetry evidence.
 
-В 0.3.1 исправлена несовместимость 0.3.0 с MQTT-сенсором HA: Home Assistant удаляет `available` как служебный JSON-атрибут (`MQTT_ATTRIBUTES_BLOCKED`). Поэтому при отсутствии этого ключа адаптер использует строгое `fault_valid=true`: в schema 1 оно требует свежего статуса UART, действующей протокольной связи и полного блока датчиков. `fault=false` или числовое состояние сенсора сами по себе доступность не доказывают. При `fault_valid=false` и отсутствии available весь снимок консервативно непригоден для управления; явное значение available не переопределяется. Прошивка ESP и MQTT Discovery для исправления не меняются.
+The adapter requires a live sensor event after startup; restored/cached states are not accepted as live measurements. The one-second watchdog only checks age and does not poll UART or refresh entities.
 
-Режим, уставка и ошибка берутся из одного сообщения. Температура в нём всегда °C; команды climate переводятся в системные единицы HA при необходимости. Обновление обычного climate не подменяет данные выбранной телеметрии.
-
-Кэш пополняется только по событиям диагностического сенсора. После запуска SRCC ждёт новое событие; уже имеющиеся атрибуты и состояния с `restored` не используются. Секундный watchdog только проверяет сроки, не создаёт новые измерения и не опрашивает UART.
-
-| Проверка | Поведение |
+| Evidence | Interpretation |
 |---|---|
-| Нет живого сообщения 15 секунд или больше | Телеметрия устарела; командное подтверждение невозможно |
-| Возраст исходного UART-статуса 30 секунд или больше | Измерение устарело, даже если heartbeat продолжает приходить |
-| Тот же status_frames и время измерения | Heartbeat поддерживает связь, но не омолаживает измерение |
-| Новые UART-статусы с неизменными значениями | Состояние остаётся свежим; изменение числовой уставки не требуется |
-| Неизвестная schema, неверные типы/часы, обратный ход времени | Снимок не принимается как достоверный |
-| Меняется режим, уставка или достоверный fault без нового UART-измерения | Снимок отклоняется |
-| available=false | Нет достоверного рабочего состояния AC; это не доказательство OFF |
-| fault_valid=false или неполный блок | Ошибка unknown; отсутствие ошибки не предполагается |
-| fault_valid=true, fault_code=0 | Подтверждено отсутствие ошибки в данном свежем снимке |
-| fault_valid=true, fault_code=1..255 | Неисправность; расшифровка родного кода не заявляется |
-| Новый boot_id | Новая сессия; незавершённая команда получает HAIER_RESTART_DURING_COMMAND |
+| No live telemetry for at least 15 s | Heartbeat stale; cannot confirm commands |
+| UART sample age at least 30 s | Measurement stale even if heartbeat continues |
+| Same status_frames/sample time | Heartbeat only; does not renew measurement time |
+| New UART samples with unchanged values | Fresh evidence; a temperature change is not required |
+| Unknown schema, invalid types/clocks, time reversal | Snapshot rejected |
+| Changed status values without a new UART measurement | Snapshot rejected |
+| available=false | No usable active-state evidence; not proof of OFF |
+| fault_valid=false or incomplete status | Fault unknown, not assumed clear |
+| Valid fault code 0 | No reported error in that snapshot |
+| Valid fault code 1–255 | Fault; native-code interpretation is not claimed |
+| New boot_id during a command | HAIER_RESTART_DURING_COMMAND |
 
-Возраст источника вычисляется по монотонным часам ESP и времени приёма в HA. В пределах сессии сохраняется наиболее консервативное наблюдённое соответствие часов; повторный кадр не переносит время измерения вперёд. Это нижняя оценка фактического возраста: неизвестная задержка сети не устраняется. Измерения не объявляются физически свежими только по факту доставки MQTT.
+HA MQTT removes the reserved JSON attribute `available`. Since 0.3.1, when it is absent, strict fault_valid=true is used under the schema-1 firmware contract, which requires fresh valid complete UART status. Explicit available=false is never overridden. A numeric sensor state or fault=false alone is insufficient.
 
-Прошивка публикует telemetry без retain. State-event API HA не предоставляет MQTT retain-флаг для атрибутов сенсора; профиль полагается на этот контракт прошивки. Для result SRCC подписывается непосредственно и игнорирует retained-сообщения.
+Source age is inferred conservatively from ESP monotonic times and HA receipt time. It is a lower bound: unknown transport delay cannot be removed. Repeated frames cannot move measurement time forward. Firmware publishes telemetry without retain; HA's sensor event API does not expose its retain flag, so this remains a firmware contract. Result messages are subscribed directly and retained results are ignored.
 
-## Команды и взаимное исключение
+## Ordered commands
 
-Команды остаются штатными вызовами `climate.set_hvac_mode` и `climate.set_temperature`. Режим и температура отправляются раздельно. Для каждой команды SRCC:
+SRCC calls climate.set_hvac_mode and climate.set_temperature separately. For each action it:
 
-1. Уже имеет подписку на result до отправки.
-2. Запоминает сессию, счётчик и время исходного снимка.
-3. Получает `accepted` для ожидаемого поля и запоминает request_id прошивки.
-4. Ждёт `confirmed` с тем же request_id и свежий последующий UART-снимок с `command_state=confirmed`, тем же ID и ожидаемым значением.
-5. Только после этого переходит к следующей команде.
+1. Has a result subscription before dispatch.
+2. Captures the source session, sample counter, and measurement time.
+3. Receives accepted for the expected field and records the firmware request_id.
+4. Requires confirmed for that ID plus a later matching UART snapshot with command_state=confirmed and the expected value.
+5. Only then advances to the next command.
 
-Порядок прихода confirmed и соответствующей телеметрии может различаться. Один heartbeat, рост счётчика, обновление climate или завершение сервиса HA не подтверждают исполнение. Прошивка сама требует два совпавших последующих ответа UART. 35 секунд учитывают её 30-секундное ожидание с небольшим запасом; это исходная настройка, а не измеренная гарантия сети.
+Result and telemetry can arrive in either order. Heartbeat, service completion, an ordinary climate update, or an advancing counter alone is insufficient. The firmware requires matching subsequent UART responses. The 35-second initial timeout allows for the firmware's 30-second confirmation budget; it is not a measured latency guarantee.
 
-Если ручная команда уже имеет статус pending, SRCC показывает **WAIT_HAIER_COMMAND / EXTERNAL_COMMAND_PENDING**, ждёт её завершения и затем корректирует режим/уставку.
+## External commands and conflicts
 
-С версии **0.4.1** конфликт идентификаторов `HAIER_COMMAND_CONFLICT` / `HAIER_COMMAND_SUPERSEDED` не требует ручного сброса автоматики. SRCC показывает **WAIT_HAIER_COMMAND / COMMAND_CONFLICT_RECOVERY**, сохраняет первую причину и прекращает отправку команд на время повторного согласования:
+An external pending command causes WAIT_HAIER_COMMAND / EXTERNAL_COMMAND_PENDING. SRCC waits and then reconciles mode and setpoint if automation remains enabled.
 
-- Пауза равна `Haier telemetry command confirmation timeout` (обычно 35 секунд, минимум 5). После последнего MQTT result требуется ещё не менее 5 секунд без новых результатов.
-- Нужны достоверная телеметрия той же сессии ESP, новое UART-измерение после обнаружения конфликта и состояние команды `confirmed`. Повторная публикация старого измерения не снимает ожидание; потеря связи или `pending` продлевают его.
-- Затем прежняя неоднозначная команда оставляется со статусом `conflict`, а план строится заново по текущим температуре, питанию и состояниям оборудования. Чужое подтверждение не объявляется подтверждением команды SRCC.
-- Когда выбран режим кондиционирования, HEAT/AUTO/FAN_ONLY/DRY/OFF возвращаются в COOL с соблюдением выдержки компрессора. Только после подтверждения COOL отдельно исправляется уставка. Если цель уже достигнута, повторная команда не отправляется.
-- Повторный конфликт снова запускает паузу: непрерывная борьба двух автоматизаций не создаёт лавину команд. При выключенном Automatic control SRCC не корректирует настройки.
+Since 0.4.1, HAIER_COMMAND_CONFLICT / HAIER_COMMAND_SUPERSEDED enters bounded reconciliation instead of permanent conflict lockout. It waits for the configured Haier budget (minimum 5 s), at least 5 s without a new result, valid telemetry from the same session, a newer UART sample, and confirmed command state. Then it abandons ambiguous attribution and builds a new plan; another command's result is not accepted as SRCC success.
 
-Отказ сервиса/прошивки, неподтверждённая команда и перезапуск ESP остаются фиксируемыми ошибками. После выяснения причины новое согласование запускается выключением и включением Automatic control. В журнале `command_conflict` имеет WARNING, `command_reconciliation` — INFO, далее следуют обычные `command_sent` / `command_confirmed`. Поле `command_error_detail` различает неожиданный тип команды, неверный ID, повтор исходного ID, второй принятый ID и смену ID в телеметрии без публикации самих идентификаторов.
+Repeated conflicts restart the wait rather than causing a command storm. Generic timeouts, service/firmware errors, and ESP restarts remain latched execution errors. Investigate and use Automatic control OFF→ON for a new reconciliation. Firmware assigns request IDs; schema 1 cannot guarantee sender attribution across simultaneous writers.
 
-На рабочей установке версия 0.4.1 ещё требует проверки: вручную изменить уставку и режим, дождаться последовательной коррекции, повторить изменение во время коррекции и проверить отсутствие постоянной блокировки. Программные тесты используют имитацию MQTT и оборудования.
+When AC is selected, COOL is restored before correcting the target. All power, fault, outdoor-temperature, ventilation-OFF, and fresh-readback guards remain. Current SRCC has no extra compressor restart delay; older documentation mentioning it is superseded.
 
-Request_id задаёт ESP, а не вызывающая сторона. При одновременной записи из нескольких интерфейсов строгая идентификация отправителя невозможна в схеме 1. На время совместного испытания исключите параллельные автоматизации, управляющие тем же AC.
+## Diagnostics
 
-Межблокировки сохранены: вентиляция разрешается после подтверждённого OFF AC или ранее согласованного доказательства отсутствия питания; кондиционер запускается после отключения автоматической вентиляции и ВУ. Свежая телеметрия работающего AC не позволяет трактовать недоступный climate как обесточивание. Порог −5 °C, сезонный гистерезис ±1 °C и выдержки компрессора сохраняются.
+The ac_telemetry section includes quality, rejection reason, heartbeat/source age, counters, fault fields, and command acceptance/confirmation state. It omits raw boot/request IDs, source entity IDs, and the result topic. Input freshness_basis is haier_uart_sample; telemetry_reason explains invalid/unverified/stale states.
 
-## Диагностика и журнал
-
-В скачиваемой диагностике SRCC раздел `ac_telemetry` содержит качество, причину отклонения, возраст heartbeat и источника, status_frames, fault_valid/fault/fault_code, состояние команды и признаки accepted/confirmed. Boot ID, request ID, MQTT-топик и идентификаторы исходных сущностей в этот раздел не экспортируются.
-
-В `inputs` для AC указана основа свежести `haier_uart_sample` и причина `telemetry_reason`. Неверный первый пакет имеет качество `invalid`; `unverified` означает ожидание первого сообщения. Журнал INFO по-прежнему содержит `command_sent`, `service_completed`, `command_confirmed`; ошибки и изменения качества видны отдельно. Настройка:
-
-```yaml
-logger:
-  default: warning
-  logs:
-    custom_components.fourvrs_server_room: info
-```
-
-Чистый WARNING-журнал сам по себе не показывает успешные команды.
-
-## Программные проверки и совместная приёмка
-
-Прогон 2026-09-27: **73 автономных + 60 HA-тестов = 133 PASS**; hassfest — 1 интеграция, 0 invalid. HA-тесты используют реальные состояния, события и сервисы HA 2026.9.2 с имитацией оборудования. MQTT result-подписка подменена; живой брокер и рабочая ESP этим прогоном не проверены.
-
-В 0.3.0 добавлены 10 автономных и 12 HA-тестов: схема/типы/коды 0/1/255, неполные данные, интервалы 15/30 секунд, 10 минут неизменных значений с новыми UART-статусами, повторные и задержанные пакеты, сессии ESP, result/ID/retain, принадлежность устройству, начало после живого события, последовательный COOL→уставка, OFF перед вентиляцией, противоречивые данные питания и ожидание ручной команды.
-
-В 0.3.1 все профильные HA-тесты используют атрибуты без available, как после фильтрации MQTT. Три дополнительные регрессии проверяют формат рабочей установки, недостоверный fault и запрет переопределять явный available=false. Транспорт MQTT в тестах по-прежнему имитируется.
-
-| Следующая проверка на HA | Критерий приёмки | Статус |
-|---|---|---|
-| Наблюдение 10–15 минут без изменения уставки | Счётчик обновляется, возраст источника меньше 30 s, нет ложного stale из-за неизменного climate | Не выполнена |
-| Ручная уставка 23 вместо заданных 22 °C | Сначала завершается ручная команда, затем отдельная коррекция и command_confirmed; возвращается 22 °C | Не выполнена |
-| Режим и уставка изменены одновременно | COOL и 22 подтверждаются по очереди, нет второй команды до подтверждения первой | Не выполнена |
-| Перезагрузка записи SRCC / HA | Ожидание живой телеметрии; старые атрибуты не подтверждают команду; намерение ON/OFF сохраняется | Не выполнена |
-| Потеря MQTT/UART, перезапуск ESP, неполный ответ, ненулевой fault | Не объявляется OFF/исправность по отсутствию данных, нет ложного подтверждения и автоматического повтора | Только программная имитация |
-| Полный сезонный переход AC→VENT→AC | Обе последовательности с реальными задержками и обратной связью | Не выполнена |
-
-Разрывы связи и ошибки оборудования сначала воспроизводят на стенде; создавать реальную неисправность кондиционера не требуется. Полевые результаты записывают обезличенно в журнал испытаний, исходные журналы и приватные заметки не публикуют.
+Enable the SRCC INFO logger to see command_sent, service_completed, command_confirmed, command_conflict, and command_reconciliation. The tests simulate MQTT and equipment. Field checks must separately verify real retained-message behavior, delayed results, restart, conflict handling, and command feedback. The profile is not automatically compatible with the Samsung bridge.
